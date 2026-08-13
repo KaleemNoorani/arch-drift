@@ -42,13 +42,16 @@ test('CLI: --target pointing at a nonexistent directory -> exit 2, clear message
   assert.match(stderr, /does not exist/);
 });
 
-test('CLI: --config + --target, real fixture -> exit 1, human report has all six sections', async () => {
+test('CLI: --config + --target, real fixture -> exit 1, human report has all seven sections', async () => {
   const { code, stdout } = await runCli(['--config', mainConfig, '--target', target]);
   assert.equal(code, 1);
-  for (const heading of ['Violations', 'Advisories', 'Active Exemptions', 'Exclusions', 'Errors', 'Knowledge']) {
+  for (const heading of [
+    'Violations', 'Advisories', 'Active Exemptions', 'Exclusions', 'Errors', 'Knowledge', 'Invariant Status',
+  ]) {
     assert.match(stdout, new RegExp(`=== ${heading} ===`), `missing section: ${heading}`);
   }
   assert.match(stdout, /ingest-only-order-creation/);
+  assert.match(stdout, /no-legacy-queue-jobs: no_targets_matched/);
 });
 
 test('CLI: --json produces valid, schema-shaped JSON on stdout matching the process exit code', async () => {
@@ -56,7 +59,7 @@ test('CLI: --json produces valid, schema-shaped JSON on stdout matching the proc
   assert.equal(code, 1);
 
   const report = JSON.parse(stdout); // must not throw — output must be pure JSON, no stray text
-  assert.equal(report.schemaVersion, '1');
+  assert.equal(report.schemaVersion, '2');
   assert.equal(report.exitCode, code);
   assert.equal(report.phase, 'dev');
   assert.ok(Array.isArray(report.violations) && report.violations.length > 0);
@@ -73,6 +76,29 @@ test('CLI: --json produces valid, schema-shaped JSON on stdout matching the proc
     knowledge: report.knowledge.length,
     exclusions: report.exclusions.length,
   });
+
+  // invariants[] contract: one entry per invariant in the config, every documented status
+  // represented across this fixture, each check carrying matchedFiles/findings counts.
+  assert.ok(Array.isArray(report.invariants));
+  const byId = Object.fromEntries(report.invariants.map((inv) => [inv.id, inv]));
+  const statuses = new Set(report.invariants.map((inv) => inv.status));
+  assert.ok(statuses.has('violated'));
+  assert.ok(statuses.has('advisory_only'));
+  assert.ok(statuses.has('clean'));
+  assert.ok(statuses.has('no_targets_matched'));
+  assert.ok(statuses.has('skipped_by_phase'));
+
+  const skipped = byId['production-only-check'];
+  assert.equal(skipped.status, 'skipped_by_phase');
+  assert.equal(skipped.checks[0].matchedFiles, null);
+  assert.equal(skipped.checks[0].findings, null);
+
+  const clean = byId['no-deprecated-helper-usage'];
+  assert.equal(clean.checks[0].findings, 0);
+  assert.ok(clean.checks[0].matchedFiles > 0);
+
+  const rollup = byId['dual-check-rollup-demo'];
+  assert.equal(rollup.status, 'no_targets_matched', 'rollup must report the worse of its two checks');
 });
 
 test('CLI: unknown checker type -> exit 2 via the real binary, Errors section populated', async () => {
@@ -89,6 +115,10 @@ test('CLI: unknown checker type with --json -> exitCode 2, errors array populate
   assert.equal(report.exitCode, 2);
   assert.equal(report.errors.length, 1);
   assert.match(report.errors[0].message, /Unknown checker type/);
+
+  assert.equal(report.invariants.length, 1);
+  assert.equal(report.invariants[0].status, 'error');
+  assert.equal(report.invariants[0].checks[0].status, 'error');
 });
 
 test('CLI: node src/cli.js (direct execution) behaves identically to bin/drift-check.js', async () => {

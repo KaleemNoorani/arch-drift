@@ -36,7 +36,11 @@ function resolveLiteral(rhs) {
 export async function check(params, invariant, ctx) {
   const { file, key, allowed } = params;
   const absPath = path.join(ctx.targetDir, file);
-  if (!existsSync(absPath)) return [];
+  if (!existsSync(absPath)) {
+    ctx.recordMatchedCount?.(0);
+    return [];
+  }
+  ctx.recordMatchedCount?.(1);
 
   const lines = await readLines(absPath);
   const findings = [];

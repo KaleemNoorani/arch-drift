@@ -78,6 +78,68 @@
     },
 
     {
+      "id": "no-deprecated-helper-usage",
+      "rule": "Fixture invariant demonstrating the 'clean' status: matches real files, finds nothing.",
+      "rationale": "Exercises the clean status path for the invariants[] report contract.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "forbidden_call",
+          "patterns": ["LegacyHelper::doTheThing"],
+          "scope": ["app/**/*.php"]
+        }
+      ]
+    },
+
+    {
+      "id": "no-legacy-queue-jobs",
+      "rule": "Fixture invariant demonstrating the 'no_targets_matched' status: scope matches zero files.",
+      "rationale": "Exercises the no_targets_matched status path — a stand-in for a typo'd scope glob or an exhausted convention.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "forbidden_call",
+          "patterns": ["dispatch("],
+          "scope": ["app/Jobs/**/*.php"]
+        }
+      ]
+    },
+
+    {
+      "id": "production-only-check",
+      "rule": "Fixture invariant demonstrating the 'skipped_by_phase' status: only active in a phase we're not currently in.",
+      "rationale": "Exercises the skipped_by_phase status path.",
+      "severity": "violation",
+      "phases": ["production"],
+      "checks": [
+        {
+          "type": "forbidden_call",
+          "patterns": ["whatever"],
+          "scope": ["app/**/*.php"]
+        }
+      ]
+    },
+
+    {
+      "id": "dual-check-rollup-demo",
+      "rule": "Fixture invariant demonstrating rollup: one check clean, one no_targets_matched, invariant reports the worse of the two.",
+      "rationale": "Exercises the worst-status rollup across an invariant's checks.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "forbidden_call",
+          "patterns": ["LegacyHelper::doTheThing"],
+          "scope": ["app/**/*.php"]
+        },
+        {
+          "type": "forbidden_call",
+          "patterns": ["whatever"],
+          "scope": ["app/Jobs/**/*.php"]
+        }
+      ]
+    },
+
+    {
       "id": "integrations-degrade",
       "rule": "External-system failures log and continue.",
       "rationale": "A partner being unreachable should slow the operation, not fail it.",

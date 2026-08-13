@@ -49,6 +49,7 @@ function isOnlyThrow(strippedBody) {
 export async function check(params, invariant, ctx) {
   const { scope, method, fails_if, escape_marker } = params;
   const files = await findFiles(ctx.targetDir, scope, []);
+  ctx.recordMatchedCount?.(files.length);
   const findings = [];
 
   for (const rel of files) {
