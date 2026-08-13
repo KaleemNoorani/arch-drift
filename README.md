@@ -13,7 +13,10 @@ node bin/drift-check.js --config <path-to-architecture.json> --target <path-to-c
 ```
 
 Both flags are required; there is no default target (it never falls back to
-the current directory).
+the current directory). `bin/drift-check.js` is the entrypoint declared in
+`package.json`'s `bin` field and is canonical; `node src/cli.js` (same flags)
+works identically since it's the same module with an invocation guard, not a
+second, different entrypoint.
 
 Exit codes:
 
@@ -22,6 +25,33 @@ Exit codes:
 - `2` — tool/config error (malformed invariant, unreadable target, unknown
   checker type). Errors dominate violations because they mean the run was
   incomplete, not merely that it found problems.
+
+### `--json`
+
+Pass `--json` for a stable, versioned JSON contract instead of the human
+report, meant for external tooling (e.g. a Claude Code plugin) to consume:
+
+```
+{
+  "schemaVersion": "1",
+  "exitCode": 0 | 1 | 2,
+  "phase": "...",
+  "summary": { "violations", "advisories", "suppressed", "errors", "knowledge", "exclusions" },
+  "violations": [ { invariantId, checkId, severity, rationale, file, line, matchedText } ],
+  "advisories": [ ...same shape... ],
+  "exemptions": {
+    "suppressed": [ { ...finding, exemption: { invariant, paths, reason, validThrough, granted } } ],
+    "rows": [ { invariant, paths, reason, validThrough, granted, status, suppressedCount } ]
+  },
+  "exclusions": [ { invariantId, checkId, reason, count } ],
+  "errors": [ { invariantId, checkId, message } ],
+  "knowledge": [ { id, kind, claim, rationale, status, ... } ]
+}
+```
+
+`schemaVersion` bumps on any breaking change to this shape. Exit code is
+duplicated at the top level and as the process exit code, so a consumer can
+read either.
 
 ## v1 scope
 
@@ -45,12 +75,35 @@ means adding a file there, not editing a dispatch switch (see
 | `forbidden_call` | flags scoped files containing any of a list of literal call patterns |
 | `forbidden_dependency` | flags forbidden package names appearing in root-level manifest files |
 | `config_value_allowlist` | extracts a key's literal value from a PHP config file and checks it against an allowlist |
-| `method_not_empty` | brace-matched extraction of a named method body; flags empty/comment-only/throws-only bodies |
+| `method_not_empty` | brace-matched extraction of a named method body; flags empty/comment-only/throws-only bodies, unless the body carries an `escape_marker` annotation |
 | `handler_present` | flags files missing any of a set of handling patterns, and separately flags occurrences of specific risky patterns |
 | `suspicious_usage` | proximity heuristic: flags a symbol appearing within N characters of any of a set of patterns |
 
 Each checker exports `type` (string) and `async check(checkParams, invariant, ctx)`,
-returning an array of `{ file, line, matchedText }`.
+returning an array of `{ file, line, matchedText }`. `ctx` also carries
+`recordExclusions(rows)`, which `forbidden_call` and `suspicious_usage` call
+to report which `except` entries suppressed files and how many (see
+`except` below) — this doesn't affect their return value.
+
+### `except`: named exclusions
+
+`forbidden_call` and `suspicious_usage` both take an `except` list. Each
+entry is either a bare glob string (no justification recorded) or
+`{ "paths": [...], "reason": "..." }` (a named exclusion). Both forms can be
+mixed in the same list. Named exclusions and their per-run match counts
+print in the report's **Exclusions** section — the point is that an
+exclusion's reason should survive as long as the exclusion does; an opaque
+path glob doesn't carry its own justification forward the way a `reason`
+string does.
+
+### `method_not_empty`'s `escape_marker`
+
+An optional literal annotation string (e.g. `"@architecturally-irreversible"`).
+If it appears anywhere in the method's raw body, the check passes
+regardless of `fails_if` — a human-declared, on-the-record exception to the
+rule itself, distinct from an `exemptions[]` entry (which suppresses a
+violation after the fact). The marker is trusted on presence only: the
+checker has no way to verify the claim behind it is true.
 
 ## architecture.json shape
 
@@ -84,10 +137,12 @@ worked example.
 
 ## Report format
 
-Five sections: **Violations**, **Advisories**, **Active Exemptions**,
-**Errors**, **Knowledge**. Every finding shows its invariant id, `file:line`,
-the matched text, and the invariant's `rationale` verbatim. Advisories never
-affect the exit code.
+Six sections: **Violations**, **Advisories**, **Active Exemptions**,
+**Exclusions**, **Errors**, **Knowledge**. Every finding shows its invariant
+id, `file:line`, the matched text, and the invariant's `rationale` verbatim.
+Advisories never affect the exit code. Pass `--json` for the same data as a
+stable, versioned JSON contract (see `--json` above) instead of this text
+report.
 
 ## Case study: translating a real codebase's constraints
 

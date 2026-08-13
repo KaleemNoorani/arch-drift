@@ -48,14 +48,34 @@ function renderKnowledge(knowledgeRows) {
   });
 }
 
+function renderExclusions(exclusionRecords) {
+  const lines = [];
+  for (const record of exclusionRecords) {
+    for (const { reason, count } of record.exclusions) {
+      lines.push(
+        `  [${record.invariantId}] ${record.checkId}\n    excluded: ${count} file(s)\n    reason: ${reason ?? '(unspecified)'}`
+      );
+    }
+  }
+  return lines;
+}
+
 function renderErrors(errors) {
   return errors.map(
     (e) => `  [${e.invariantId}] ${e.checkId}\n    error: ${e.message}`
   );
 }
 
+/** Errors dominate violations: an incomplete run outranks a completed one that found problems. */
+export function computeExitCode({ findings, errors }) {
+  const hasViolation = findings.some((f) => f.severity === 'violation');
+  if (errors.length > 0) return 2;
+  if (hasViolation) return 1;
+  return 0;
+}
+
 /**
- * result: { findings, suppressed, exemptionRows, errors, knowledgeRows }
+ * result: { findings, suppressed, exemptionRows, errors, knowledgeRows, exclusionRecords }
  * Returns { text, exitCode }.
  */
 export function renderReport(result) {
@@ -66,13 +86,10 @@ export function renderReport(result) {
     section('Violations', violations.map(findingLine)),
     section('Advisories', advisories.map(findingLine)),
     section('Active Exemptions', renderExemptions(result)),
+    section('Exclusions', renderExclusions(result.exclusionRecords)),
     section('Errors', renderErrors(result.errors)),
     section('Knowledge', renderKnowledge(result.knowledgeRows)),
   ];
 
-  let exitCode = 0;
-  if (result.errors.length > 0) exitCode = 2;
-  else if (violations.length > 0) exitCode = 1;
-
-  return { text: parts.join('\n'), exitCode };
+  return { text: parts.join('\n'), exitCode: computeExitCode(result) };
 }

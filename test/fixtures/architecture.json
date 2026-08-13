@@ -24,7 +24,10 @@
           ],
           "scope": ["app/**/*.php"],
           "except": [
-            "app/Services/Integrations/*/Ingest*.php",
+            {
+              "paths": ["app/Services/Integrations/*/Ingest*.php"],
+              "reason": "Ingest boundary implementations are the designated legitimate write path."
+            },
             "database/factories/**",
             "database/seeders/**",
             "tests/**"
@@ -58,8 +61,8 @@
 
     {
       "id": "reversible-migrations",
-      "rule": "Every migration is reversible while data is still disposable.",
-      "rationale": "Pre-production schema churn is cheap only because it can be undone.",
+      "rule": "Every migration is reversible while data is still disposable, or explicitly marked as an accepted exception to that rule.",
+      "rationale": "Pre-production schema churn is cheap only because it can be undone. Deliberately irreversible migrations are a legitimate call, but it must be made explicitly via the marker, not inferred from an empty down().",
       "severity": "violation",
       "phases": ["legacy", "dev", "staging"],
       "checks": [
@@ -67,10 +70,11 @@
           "type": "method_not_empty",
           "scope": ["database/migrations/*.php"],
           "method": "down",
-          "fails_if": ["empty_body", "only_comments", "throws"]
+          "fails_if": ["empty_body", "only_comments", "throws"],
+          "escape_marker": "@architecturally-irreversible"
         }
       ],
-      "known_gap": "Brace-matched text extraction, not parsed. A down() that is syntactically present but semantically incomplete passes."
+      "known_gap": "Brace-matched text extraction, not parsed. The escape_marker is trusted on presence only, not verified for truthfulness."
     },
 
     {
