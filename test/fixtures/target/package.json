@@ -1,0 +1,6 @@
+{
+  "name": "fixture-target",
+  "dependencies": {
+    "vue": "^3.4.0"
+  }
+}

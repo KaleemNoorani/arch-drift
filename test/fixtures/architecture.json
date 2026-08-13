@@ -1,0 +1,176 @@
+{
+  "version": "1.0",
+  "project": "fixture-target",
+  "description": "Fixture architecture.json exercising every checker type, exemption state, and knowledge-section path for arch-drift's own test suite.",
+
+  "phase": "dev",
+  "phases": ["legacy", "dev", "staging", "production"],
+
+  "invariants": [
+    {
+      "id": "ingest-only-order-creation",
+      "rule": "Only the ingest boundary may create FulfillmentOrder rows.",
+      "rationale": "FulfillmentOrder is a local projection of an upstream order. A second creation path means rows exist with no upstream counterpart.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "forbidden_call",
+          "patterns": [
+            "FulfillmentOrder::create",
+            "FulfillmentOrder::firstOrCreate",
+            "FulfillmentOrder::updateOrCreate",
+            "FulfillmentOrder::insert",
+            "new FulfillmentOrder"
+          ],
+          "scope": ["app/**/*.php"],
+          "except": [
+            "app/Services/Integrations/*/Ingest*.php",
+            "database/factories/**",
+            "database/seeders/**",
+            "tests/**"
+          ]
+        }
+      ],
+      "known_gap": "Lexical. A two-line construct-then-save split across statements evades the pattern list."
+    },
+
+    {
+      "id": "search-against-own-data",
+      "rule": "Search resolves against local data only.",
+      "rationale": "An external index becomes a second source of truth that diverges silently.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "forbidden_dependency",
+          "manifests": ["composer.json", "package.json"],
+          "packages": ["quicksearch/quicksearch-php", "quicksearch-js", "@quicksearch/client"],
+          "known_gap": "Textual match on the manifest; a transitive dependency pulling the same package in would not be caught."
+        },
+        {
+          "type": "config_value_allowlist",
+          "file": "config/scout.php",
+          "key": "driver",
+          "allowed": ["database", "collection", "null"],
+          "known_gap": "Reads the committed config file as text. A driver set only through a runtime environment variable is invisible."
+        }
+      ]
+    },
+
+    {
+      "id": "reversible-migrations",
+      "rule": "Every migration is reversible while data is still disposable.",
+      "rationale": "Pre-production schema churn is cheap only because it can be undone.",
+      "severity": "violation",
+      "phases": ["legacy", "dev", "staging"],
+      "checks": [
+        {
+          "type": "method_not_empty",
+          "scope": ["database/migrations/*.php"],
+          "method": "down",
+          "fails_if": ["empty_body", "only_comments", "throws"]
+        }
+      ],
+      "known_gap": "Brace-matched text extraction, not parsed. A down() that is syntactically present but semantically incomplete passes."
+    },
+
+    {
+      "id": "integrations-degrade",
+      "rule": "External-system failures log and continue.",
+      "rationale": "A partner being unreachable should slow the operation, not fail it.",
+      "severity": "advisory",
+      "checks": [
+        {
+          "type": "handler_present",
+          "scope": ["app/Services/Integrations/**/*.php"],
+          "requires_any": ["catch (", "->rescue(", "Http::retry", "report("],
+          "flags": ["->throw()"]
+        }
+      ],
+      "known_gap": "Proves a handler is present, not that it degrades correctly."
+    }
+  ],
+
+  "exemptions": [
+    {
+      "invariant": "ingest-only-order-creation",
+      "paths": ["app/Services/Legacy/OrderBackfill.php"],
+      "reason": "One-off backfill written before the ingest boundary existed. Slated for deletion, not migration.",
+      "valid_through": "staging",
+      "granted": "2026-01-01"
+    },
+    {
+      "invariant": "integrations-degrade",
+      "paths": ["app/Services/Integrations/PartnerX/**"],
+      "reason": "Deliberately expired fixture: demonstrates the EXPIRED path without waiting for a real phase transition.",
+      "valid_through": "legacy",
+      "granted": "2025-01-01"
+    },
+    {
+      "invariant": "reversible-migrations",
+      "paths": ["database/migrations/9999_never_exists.php"],
+      "reason": "Fixture demonstrating a registered exemption with no currently-matching findings.",
+      "valid_through": "staging",
+      "granted": "2026-01-01"
+    }
+  ],
+
+  "knowledge": [
+    {
+      "id": "order-number-vs-upstream-id",
+      "kind": "identifier_hazard",
+      "claim": "order_number is a human-readable display value. Lookups and joins use upstream_order_id.",
+      "rationale": "The display value looks enough like a key that it gets used as one.",
+      "status": "decided",
+      "severity": "advisory",
+      "checks": [
+        {
+          "type": "suspicious_usage",
+          "symbol": "order_number",
+          "near": ["where", "whereIn", "find", "firstWhere", "join", "->on("],
+          "window_chars": 60,
+          "scope": ["app/**/*.php", "resources/js/**/*.js", "resources/js/**/*.vue"],
+          "except": ["resources/views/**", "app/Http/Resources/**"]
+        }
+      ],
+      "known_gap": "Proximity heuristic over a character window; expected to produce false positives."
+    },
+    {
+      "id": "carton-catalog-ownership",
+      "kind": "source_of_truth",
+      "claim": "The carton catalog is owned upstream. This service mirrors it read-only.",
+      "rationale": "Both systems can plausibly claim ownership of box dimensions.",
+      "status": "decided"
+    },
+    {
+      "id": "cart-name-collision",
+      "kind": "name_collision",
+      "claim": "'cart' means a physical picking cart in warehouse contexts and an item container in commerce contexts.",
+      "rationale": "The collision is invisible in conversation and in code review.",
+      "status": "decided"
+    },
+    {
+      "id": "upstream-wave-semantics",
+      "kind": "unverified_assumption",
+      "claim": "The upstream platform's 'wave' may not mean what 'wave' means here.",
+      "rationale": "Borrowed terminology is trusted only as far as it has been confirmed.",
+      "status": "unconfirmed"
+    },
+    {
+      "id": "partner-timeout-budget-unverified",
+      "kind": "unverified_assumption",
+      "claim": "Whether 'wave' timing budgets in partner integrations match local expectations has not been confirmed.",
+      "rationale": "Included to exercise an unconfirmed knowledge entry that also carries a check.",
+      "status": "unconfirmed",
+      "severity": "advisory",
+      "checks": [
+        {
+          "type": "suspicious_usage",
+          "symbol": "wave",
+          "near": ["ship", "pick"],
+          "window_chars": 40,
+          "scope": ["app/**/*.php"]
+        }
+      ]
+    }
+  ]
+}

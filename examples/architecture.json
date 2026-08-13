@@ -1,0 +1,156 @@
+{
+  "version": "1.0",
+  "project": "example-fulfillment-service",
+  "description": "Example architecture declaration for arch-drift. Models a Laravel fulfillment service that materializes orders from an upstream commerce platform. Names and vendors are illustrative.",
+
+  "phase": "pre-production",
+  "phases": ["local", "pre-production", "staging", "production"],
+
+  "invariants": [
+    {
+      "id": "ingest-only-order-creation",
+      "rule": "Only the ingest boundary may create FulfillmentOrder rows.",
+      "rationale": "FulfillmentOrder is a local projection of an upstream order. Ingest is the one legitimate materialization point. A second creation path means rows exist here with no upstream counterpart, and the two systems then disagree about which orders are real.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "forbidden_call",
+          "patterns": [
+            "FulfillmentOrder::create",
+            "FulfillmentOrder::firstOrCreate",
+            "FulfillmentOrder::updateOrCreate",
+            "FulfillmentOrder::insert",
+            "new FulfillmentOrder"
+          ],
+          "scope": ["app/**/*.php"],
+          "except": [
+            "app/Services/Integrations/*/Ingest*.php",
+            "database/factories/**",
+            "database/seeders/**",
+            "tests/**"
+          ]
+        }
+      ],
+      "known_gap": "Lexical. A two-line construct-then-save ($m = new FulfillmentOrder(); ... $m->save();) split across statements evades the pattern list. Needs call-site context to catch reliably.",
+      "pending_verification": "Confirm against real creation sites that ingest is genuinely the sole legitimate writer before treating the except list as correct."
+    },
+
+    {
+      "id": "search-against-own-data",
+      "rule": "Search resolves against local data only. The abstraction layer is fine; a remote engine is not.",
+      "rationale": "An external index becomes a second source of truth that diverges silently. Divergence surfaces as items that appear searchable but cannot be picked, which is expensive to diagnose because both systems individually look healthy.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "forbidden_dependency",
+          "manifests": ["composer.json", "package.json"],
+          "packages": [
+            "quicksearch/quicksearch-php",
+            "quicksearch-js",
+            "@quicksearch/client"
+          ]
+        },
+        {
+          "type": "config_value_allowlist",
+          "file": "config/scout.php",
+          "key": "driver",
+          "allowed": ["database", "collection", "null"]
+        }
+      ],
+      "known_gap": "Reads the committed config file as text. A driver set only through a runtime environment variable is invisible to a lexical check. The allowlist shape is deliberate: acceptable local drivers are enumerable, external vendors are not."
+    },
+
+    {
+      "id": "reversible-migrations",
+      "rule": "Every migration is reversible while data is still disposable.",
+      "rationale": "Pre-production schema churn is cheap only because it can be undone. That stops being true the day real data exists, so the flexibility and the reversibility requirement expire together.",
+      "severity": "violation",
+      "phases": ["pre-production", "staging"],
+      "checks": [
+        {
+          "type": "method_not_empty",
+          "scope": ["database/migrations/*.php"],
+          "method": "down",
+          "fails_if": ["empty_body", "only_comments", "throws"]
+        }
+      ],
+      "known_gap": "Brace-matched text extraction, not parsed. A down() method that is syntactically present but semantically incomplete passes. Genuinely irreversible data backfills should carry a registered exemption rather than an empty down()."
+    },
+
+    {
+      "id": "integrations-degrade",
+      "rule": "External-system failures log and continue. They never block or corrupt the core workflow.",
+      "rationale": "A partner being unreachable should slow the operation, not fail it. Converting a partner outage into an unhandled exception turns someone else's downtime into ours.",
+      "severity": "advisory",
+      "checks": [
+        {
+          "type": "handler_present",
+          "scope": ["app/Services/Integrations/**/*.php"],
+          "requires_any": ["catch (", "->rescue(", "Http::retry", "report("],
+          "flags": ["->throw()"]
+        }
+      ],
+      "known_gap": "Proves a handler is present, not that it degrades correctly. A catch block that rethrows satisfies this check. ->throw() is flagged separately because it is the most common way an integration silently converts a partner hiccup into a hard failure while looking unremarkable in review."
+    }
+  ],
+
+  "exemptions": [
+    {
+      "invariant": "ingest-only-order-creation",
+      "paths": ["app/Services/Legacy/OrderBackfill.php"],
+      "reason": "One-off backfill written before the ingest boundary existed. Slated for deletion, not migration.",
+      "valid_through": "staging",
+      "granted": "2026-08-13"
+    },
+    {
+      "invariant": "integrations-degrade",
+      "paths": ["app/Services/Integrations/PartnerPortal/**"],
+      "reason": "Partner portal client is unauthenticated and unhardened during active build-out. Explicitly not a production-ready state. Deliberately left expired in this example (valid_through: local, a phase already behind the current pre-production phase) to demonstrate the EXPIRED path in sample output, rather than leaving it dormant until a real phase transition.",
+      "valid_through": "local",
+      "granted": "2026-07-01"
+    }
+  ],
+
+  "knowledge": [
+    {
+      "id": "order-number-vs-upstream-id",
+      "kind": "identifier_hazard",
+      "claim": "order_number is a human-readable display value. Lookups and joins use upstream_order_id, which is the upstream system's identifier.",
+      "rationale": "The display value looks enough like a key that it gets used as one. It is not guaranteed unique across upstream tenants and its format has changed before. Every bug from this class looks like a data problem rather than a code problem.",
+      "status": "decided",
+      "severity": "advisory",
+      "checks": [
+        {
+          "type": "suspicious_usage",
+          "symbol": "order_number",
+          "near": ["where", "whereIn", "find", "firstWhere", "join", "->on("],
+          "window_chars": 60,
+          "scope": ["app/**/*.php", "resources/js/**/*.js", "resources/js/**/*.vue"],
+          "except": ["resources/views/**", "app/Http/Resources/**"]
+        }
+      ],
+      "known_gap": "Proximity heuristic over a character window. A legitimate display lookup inside a search-by-reference feature will match. Expected to produce false positives; those are the point of the drift log, not a reason to narrow the window."
+    },
+    {
+      "id": "carton-catalog-ownership",
+      "kind": "source_of_truth",
+      "claim": "The carton catalog is owned upstream. This service mirrors it read-only and never writes carton definitions.",
+      "rationale": "Both systems can plausibly claim ownership of box dimensions. Leaving the direction of truth ambiguous means two catalogs drift and cartonization picks a box that does not physically exist.",
+      "status": "decided"
+    },
+    {
+      "id": "cart-name-collision",
+      "kind": "name_collision",
+      "claim": "'cart' means a physical wheeled picking cart in warehouse contexts and a pre-transaction item container in commerce contexts. The two concepts are unrelated and share no schema.",
+      "rationale": "The collision is invisible in conversation and in code review. Conflating them produces logic that compiles, reads sensibly, and is wrong.",
+      "status": "decided"
+    },
+    {
+      "id": "upstream-wave-semantics",
+      "kind": "unverified_assumption",
+      "claim": "The upstream platform's 'wave' may not mean what 'wave' means here.",
+      "rationale": "Borrowed terminology is trusted only as far as it has been confirmed to exist and mean the same thing downstream. This has not been confirmed and must not become load-bearing until it is.",
+      "status": "unconfirmed"
+    }
+  ]
+}
