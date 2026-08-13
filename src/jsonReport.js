@@ -1,8 +1,9 @@
 import { computeExitCode } from './report.js';
 
-// Bump on any breaking change to this shape — external tooling (e.g. a
-// Claude Code plugin) depends on it being stable, not a debug dump.
-export const JSON_SCHEMA_VERSION = '1';
+// Bump on any change to this shape, breaking or additive — external tooling
+// (e.g. a Claude Code plugin) depends on it being stable, not a debug dump,
+// and needs to be able to tell when the contract has moved.
+export const JSON_SCHEMA_VERSION = '2';
 
 function exemptionSummary(exemption) {
   return {
@@ -62,5 +63,6 @@ export function buildJsonReport(result, doc) {
     exclusions,
     errors: result.errors,
     knowledge: result.knowledgeRows,
+    invariants: result.invariantsReport,
   };
 }

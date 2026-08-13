@@ -24,6 +24,7 @@ export async function check(params, invariant, ctx) {
   const scoped = await findFiles(ctx.targetDir, scope, []);
   const { included: files, exclusions } = partitionByExcept(scoped, buildExceptGroups(except));
   ctx.recordExclusions?.(exclusions);
+  ctx.recordMatchedCount?.(files.length);
   const findings = [];
 
   for (const rel of files) {

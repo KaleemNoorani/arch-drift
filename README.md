@@ -33,7 +33,7 @@ report, meant for external tooling (e.g. a Claude Code plugin) to consume:
 
 ```
 {
-  "schemaVersion": "1",
+  "schemaVersion": "2",
   "exitCode": 0 | 1 | 2,
   "phase": "...",
   "summary": { "violations", "advisories", "suppressed", "errors", "knowledge", "exclusions" },
@@ -45,13 +45,24 @@ report, meant for external tooling (e.g. a Claude Code plugin) to consume:
   },
   "exclusions": [ { invariantId, checkId, reason, count } ],
   "errors": [ { invariantId, checkId, message } ],
-  "knowledge": [ { id, kind, claim, rationale, status, ... } ]
+  "knowledge": [ { id, kind, claim, rationale, status, ... } ],
+  "invariants": [
+    {
+      id, severity, phases,
+      "status": "violated" | "advisory_only" | "clean" | "no_targets_matched" | "skipped_by_phase",
+      "checks": [ { checkId, type, status, matchedFiles, findings } ]
+    }
+  ]
 }
 ```
 
-`schemaVersion` bumps on any breaking change to this shape. Exit code is
-duplicated at the top level and as the process exit code, so a consumer can
-read either.
+`schemaVersion` bumps on any change to this shape, breaking or additive, so
+a consumer can tell when it's moved. Exit code is duplicated at the top
+level and as the process exit code, so a consumer can read either.
+`invariants[].checks[].status` can also be `error` (the check didn't
+complete) in addition to the invariant-level five; `matchedFiles`/`findings`
+are `null` for `skipped_by_phase` and `error` checks, since neither ran to
+produce a real count.
 
 ## v1 scope
 
@@ -137,12 +148,31 @@ worked example.
 
 ## Report format
 
-Six sections: **Violations**, **Advisories**, **Active Exemptions**,
-**Exclusions**, **Errors**, **Knowledge**. Every finding shows its invariant
-id, `file:line`, the matched text, and the invariant's `rationale` verbatim.
-Advisories never affect the exit code. Pass `--json` for the same data as a
-stable, versioned JSON contract (see `--json` above) instead of this text
-report.
+Seven sections: **Violations**, **Advisories**, **Active Exemptions**,
+**Exclusions**, **Errors**, **Knowledge**, **Invariant Status**. Every
+finding shows its invariant id, `file:line`, the matched text, and the
+invariant's `rationale` verbatim. Advisories never affect the exit code.
+Pass `--json` for the same data as a stable, versioned JSON contract (see
+`--json` above) instead of this text report.
+
+**Invariant Status** exists because an invariant that produced zero findings
+is otherwise invisible in the report — and "ran clean" and "never actually
+ran" look identical without it. Each invariant gets one line with its
+overall status, and one line per check with how many files it matched and
+how many findings came out:
+
+- `violated` / `advisory_only` — produced findings, matching its severity
+- `clean` — ran, matched files, found nothing
+- `no_targets_matched` — ran, but its `scope` matched zero files (a typo'd
+  pattern or an exhausted convention look identical to this on their own —
+  that's the case this status exists to catch)
+- `skipped_by_phase` — filtered out before running by the current `phase`
+- `error` — the check didn't complete (e.g. an unknown checker `type`)
+
+An invariant with multiple `checks[]` rolls up to the worst status across
+them (worst-to-best: `error` > `violated` > `advisory_only` >
+`no_targets_matched` > `clean`), so one silently-broken check doesn't hide
+behind a sibling that matched real files.
 
 ## Case study: translating a real codebase's constraints
 

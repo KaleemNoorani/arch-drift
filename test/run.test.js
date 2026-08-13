@@ -67,6 +67,29 @@ test('main fixture: expected violations, advisories, exemption states, exit 1', 
     { reason: 'Ingest boundary implementations are the designated legitimate write path.', count: 1 },
   ]);
 
+  // invariants[] status rollup: every one of the five documented statuses, plus rollup-to-worst.
+  const byId = Object.fromEntries(result.invariantsReport.map((inv) => [inv.id, inv]));
+
+  assert.equal(byId['ingest-only-order-creation'].status, 'violated');
+  assert.equal(byId['integrations-degrade'].status, 'advisory_only');
+
+  assert.equal(byId['no-deprecated-helper-usage'].status, 'clean');
+  assert.equal(byId['no-deprecated-helper-usage'].checks[0].findings, 0);
+  assert.ok(byId['no-deprecated-helper-usage'].checks[0].matchedFiles > 0);
+
+  assert.equal(byId['no-legacy-queue-jobs'].status, 'no_targets_matched');
+  assert.equal(byId['no-legacy-queue-jobs'].checks[0].matchedFiles, 0);
+
+  assert.equal(byId['production-only-check'].status, 'skipped_by_phase');
+  assert.equal(byId['production-only-check'].checks[0].status, 'skipped_by_phase');
+  assert.equal(byId['production-only-check'].checks[0].matchedFiles, null);
+
+  // Rollup: one clean check + one no_targets_matched check -> invariant reports the worse of the two.
+  const rollup = byId['dual-check-rollup-demo'];
+  assert.equal(rollup.status, 'no_targets_matched');
+  assert.equal(rollup.checks.find((c) => c.checkId.endsWith('#0:forbidden_call')).status, 'clean');
+  assert.equal(rollup.checks.find((c) => c.checkId.endsWith('#1:forbidden_call')).status, 'no_targets_matched');
+
   const knowledgeIds = result.knowledgeRows.map((k) => k.id);
   assert.ok(knowledgeIds.includes('carton-catalog-ownership'));
   assert.ok(knowledgeIds.includes('upstream-wave-semantics'));
@@ -83,4 +106,9 @@ test('unknown checker type produces an error and exit 2, not a silent skip', asy
   assert.equal(exitCode, 2);
   assert.equal(result.errors.length, 1);
   assert.match(result.errors[0].message, /Unknown checker type/);
+
+  assert.equal(result.invariantsReport.length, 1);
+  assert.equal(result.invariantsReport[0].status, 'error');
+  assert.equal(result.invariantsReport[0].checks[0].status, 'error');
+  assert.equal(result.invariantsReport[0].checks[0].matchedFiles, null);
 });
