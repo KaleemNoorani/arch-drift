@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "project": "fixture-target-error-demo",
+  "description": "Fixture demonstrating the Errors section and exit code 2 when an invariant references an unknown checker type.",
+
+  "phase": "dev",
+  "phases": ["dev", "staging", "production"],
+
+  "invariants": [
+    {
+      "id": "typo-in-checker-type",
+      "rule": "Demonstrates a malformed invariant.",
+      "rationale": "A checker type that doesn't exist should surface as a tool error, not be silently skipped.",
+      "severity": "violation",
+      "checks": [
+        { "type": "forbiden_call", "patterns": ["whatever"], "scope": ["app/**/*.php"] }
+      ]
+    }
+  ],
+
+  "exemptions": [],
+  "knowledge": []
+}
