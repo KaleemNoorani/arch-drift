@@ -9,6 +9,7 @@ export const type = 'handler_present';
 export async function check(params, invariant, ctx) {
   const { scope, requires_any, flags = [] } = params;
   const files = await findFiles(ctx.targetDir, scope, []);
+  ctx.recordMatchedCount?.(files.length);
   const findings = [];
 
   for (const rel of files) {

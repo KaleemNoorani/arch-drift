@@ -60,6 +60,17 @@ function renderExclusions(exclusionRecords) {
   return lines;
 }
 
+function renderInvariantStatus(invariantsReport) {
+  return invariantsReport.map((inv) => {
+    const checkLines = inv.checks.map((c) => {
+      if (c.status === 'skipped_by_phase') return `    ${c.checkId} — skipped_by_phase`;
+      if (c.status === 'error') return `    ${c.checkId} — error`;
+      return `    ${c.checkId} — matched ${c.matchedFiles} file(s), ${c.findings} finding(s)`;
+    });
+    return [`  ${inv.id}: ${inv.status}`, ...checkLines].join('\n');
+  });
+}
+
 function renderErrors(errors) {
   return errors.map(
     (e) => `  [${e.invariantId}] ${e.checkId}\n    error: ${e.message}`
@@ -89,6 +100,7 @@ export function renderReport(result) {
     section('Exclusions', renderExclusions(result.exclusionRecords)),
     section('Errors', renderErrors(result.errors)),
     section('Knowledge', renderKnowledge(result.knowledgeRows)),
+    section('Invariant Status', renderInvariantStatus(result.invariantsReport)),
   ];
 
   return { text: parts.join('\n'), exitCode: computeExitCode(result) };

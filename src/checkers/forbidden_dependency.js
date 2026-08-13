@@ -13,10 +13,12 @@ export const type = 'forbidden_dependency';
 export async function check(params, invariant, ctx) {
   const { manifests, packages } = params;
   const findings = [];
+  let matchedManifests = 0;
 
   for (const manifestName of manifests) {
     const absPath = path.join(ctx.targetDir, manifestName);
     if (!existsSync(absPath)) continue;
+    matchedManifests++;
 
     const lines = await readLines(absPath);
     lines.forEach((lineText, idx) => {
@@ -29,5 +31,7 @@ export async function check(params, invariant, ctx) {
       }
     });
   }
+
+  ctx.recordMatchedCount?.(matchedManifests);
   return findings;
 }
