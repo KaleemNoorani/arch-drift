@@ -1,11 +1,14 @@
 import { parseArgs } from 'node:util';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { existsSync, statSync } from 'node:fs';
 import { loadConfig, ConfigError } from './config.js';
 import { runChecks } from './run.js';
 import { renderReport } from './report.js';
+import { buildJsonReport } from './jsonReport.js';
 
-const USAGE = 'Usage: drift-check --config <path-to-architecture.json> --target <path-to-codebase>';
+const USAGE =
+  'Usage: drift-check --config <path-to-architecture.json> --target <path-to-codebase> [--json]';
 
 /** Returns the process exit code. Never throws for expected user/config errors. */
 export async function main(argv) {
@@ -16,6 +19,7 @@ export async function main(argv) {
       options: {
         config: { type: 'string' },
         target: { type: 'string' },
+        json: { type: 'boolean' },
       },
       strict: true,
     }));
@@ -49,7 +53,27 @@ export async function main(argv) {
   }
 
   const result = await runChecks(doc, targetDir);
+
+  if (values.json) {
+    const jsonReport = buildJsonReport(result, doc);
+    console.log(JSON.stringify(jsonReport, null, 2));
+    return jsonReport.exitCode;
+  }
+
   const { text, exitCode } = renderReport(result);
   console.log(text);
   return exitCode;
+}
+
+// Runs main() when this module is executed directly (`node src/cli.js ...`),
+// not just when imported. bin/drift-check.js is the package.json-declared
+// canonical entrypoint; this guard just means running this file directly
+// behaves the same way instead of silently doing nothing.
+const isDirectlyExecuted =
+  process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+
+if (isDirectlyExecuted) {
+  main(process.argv.slice(2)).then((code) => {
+    process.exitCode = code;
+  });
 }

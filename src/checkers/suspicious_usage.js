@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { findFiles } from '../lib/walk.js';
 import { lineAt } from '../lib/text.js';
 import { makeFinding } from '../lib/finding.js';
+import { buildExceptGroups, partitionByExcept } from '../lib/exclusions.js';
 
 export const type = 'suspicious_usage';
 
@@ -17,10 +18,12 @@ function findAllIndices(content, needle) {
   return indices;
 }
 
-/** params: { symbol, near: string[], window_chars, scope, except? } */
+/** params: { symbol, near: string[], window_chars, scope, except?: Array<string | {paths, reason}> } */
 export async function check(params, invariant, ctx) {
   const { symbol, near, window_chars, scope, except = [] } = params;
-  const files = await findFiles(ctx.targetDir, scope, except);
+  const scoped = await findFiles(ctx.targetDir, scope, []);
+  const { included: files, exclusions } = partitionByExcept(scoped, buildExceptGroups(except));
+  ctx.recordExclusions?.(exclusions);
   const findings = [];
 
   for (const rel of files) {

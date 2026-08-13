@@ -15,10 +15,10 @@ function buildKnowledgeRows(doc) {
  */
 export async function runChecks(doc, targetDir) {
   const registry = await getCheckerRegistry();
-  const ctx = { targetDir };
 
   const findings = [];
   const errors = [];
+  const exclusionRecords = []; // [{ invariantId, checkId, exclusions: [{reason, count}] }]
 
   const sources = [
     ...doc.invariants,
@@ -41,8 +41,17 @@ export async function runChecks(doc, targetDir) {
         continue;
       }
 
+      const exclusionsForThisCheck = [];
+      const ctx = {
+        targetDir,
+        recordExclusions: (rows) => exclusionsForThisCheck.push(...rows),
+      };
+
       try {
         const results = await dispatch(check, entry, ctx);
+        if (exclusionsForThisCheck.length > 0) {
+          exclusionRecords.push({ invariantId: entry.id, checkId, exclusions: exclusionsForThisCheck });
+        }
         for (const r of results) {
           findings.push({
             invariantId: entry.id,
@@ -63,5 +72,5 @@ export async function runChecks(doc, targetDir) {
   const { suppressed, unsuppressed, exemptionRows } = applyExemptions(findings, doc);
   const knowledgeRows = buildKnowledgeRows(doc);
 
-  return { findings: unsuppressed, suppressed, exemptionRows, errors, knowledgeRows };
+  return { findings: unsuppressed, suppressed, exemptionRows, errors, knowledgeRows, exclusionRecords };
 }
