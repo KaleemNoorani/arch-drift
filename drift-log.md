@@ -160,6 +160,40 @@ without changing what the check looks at. This one is a structural gap in
 would mean adding comment-stripping to three checkers, a real behavior
 change, not a one-line matching fix. Recorded, not fixed in this pass.
 
+**Status**: verified still present, unresolved, in the second run as well —
+it was not one of the sites given a named `except` entry, since it isn't a
+legitimate exclusion, just an unfixed gap.
+
+---
+
+## 4 legitimately excluded call sites, across 2 files — not 3
+
+**Source**: external validation, run 1 → run 2
+**Disposition**: excluded
+
+Of the frontend-request-bypass invariant's 18 run-1 violations, 4 were
+disposed as legitimately out of scope: a raw blob/file `fetch()` used to
+preview an already-uploaded file by URL, and a raw `fetch()` with an
+`AbortController` signal for a streaming/cancelable CSV export — neither is
+the shape of call the invariant exists to police. Both were given named
+`except` entries with those reasons rather than silently dropped from scope.
+
+**The site-count/file-count slip, caught the same way as the others below**:
+an early description of this disposition said "3 files." Counting directly
+from `drift-run-1.txt`, it's **2 files** — one of them (the blob/file
+preview component) had three separate matching lines, the other had one.
+3+1 = 4 sites, but that's 2 files, not 3. The tool's own exclusion-count
+field reinforced the same conflation from a different angle: it counts
+files removed from scope, not lines within them, so a glance at "count: 1"
+per exclusion entry doesn't reveal that one of those files had three
+matching lines until the pre-fix run is checked directly.
+
+**Why it matters**: "how many things were flagged" and "how many places
+they live" are different numbers, and it's easy to report one while meaning
+the other — the exact class of error this whole log exists to catch, this
+time in the log's own bookkeeping about an exclusion, not in a check's
+output.
+
 ---
 
 ## The Perseus reversal — an external partner's webhook handler
@@ -203,3 +237,45 @@ ceiling here is what the code's surrounding contract says it means, not how
 precisely the tool can locate where it says it. The disposition stands as:
 keep the check — it correctly surfaces every candidate site — but it
 cannot self-resolve this class of finding, and shouldn't be made to try.
+
+---
+
+## Three hand-maintained numbers, three independent drifts
+
+**Source**: this repo's own README, across multiple drafts
+**Disposition**: drift (in the documentation itself)
+
+The case study's headline numbers were wrong three separate times, in three
+separate ways, none of them derived from the other:
+
+1. An original claim of "25 violations, all real" for run 1. The real,
+   saved run-1 output shows **24**.
+2. A first attempt at correcting that — during the very fact-check this
+   entry documents — landed on "23." Still wrong. Also **24**. This
+   correction was itself carried in prose (arithmetic on a remembered
+   category breakdown) rather than read from the artifact.
+3. A working expectation of "~15 real drift sites" going into the first
+   run, stated from memory before the run existed to check it against. The
+   real, disposed count was **13**.
+
+**Why these are three drifts, not one propagating**: the gaps aren't even
+the same size (25→24 is off by one; 23→24 is off by one, but the wrong
+direction; 15→13 is off by two), and they trace to three different moments
+— an original claim, a correction of that claim, and a pre-run expectation.
+What's shared isn't a single bad number spreading. It's the same failure
+mode recurring independently every time a count was carried in prose or
+memory instead of read from the actual output: this project's own author
+stating an expectation from memory (drift #3), then this project's own
+assistant overclaiming a result (drift #1), then that same assistant
+getting its own correction wrong while explicitly trying to fix drift #1
+(drift #2) — a documentation defect caught only by finally reading
+`drift-run-1.txt` and `drift-run-2.json` line by line instead of doing
+arithmetic on what either of us remembered the categories to be.
+
+**Why it matters**: this is the strongest instance in this entire log,
+including everything above it. Every other entry here is about a check
+misfiring on a codebase. This one is about the exact same failure mode
+happening to the people and the assistant writing the documentation
+*about* those checks — in a section of the README explicitly about not
+overclaiming results. The fix, both times, was identical: stop asserting a
+number and go read the file it's supposed to describe.

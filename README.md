@@ -231,51 +231,61 @@ generalizable reason:
   invariant is out of reach for a lexical-only tool regardless of checker
   design; it needs a parser, not a new pattern type.**
 
-**A miscount, caught by the tool's own premise.** Before the first real run,
-the working expectation for how much drift existed — stated from memory, not
-from re-checking the codebase — was around 15 real drift sites. That number
-was wrong. It got corrected only because the actual run was measured against
-ground truth instead of trusted at face value: disposing every finding by
-hand turned up 13 confirmed live drift sites, not 15, and re-grepping the
-target confirmed the lower number, not a bug in the tool's own suppression
-logic. The gap was two people's memory of the codebase being a little
-rosier than the codebase itself — which is the entire premise of this tool,
-demonstrated on its own author before it was demonstrated on anything else.
-The lesson generalizes: when a number doesn't match expectation, re-check
-ground truth first, and only suspect the tool once that's ruled out.
+**Three hand-maintained numbers, three independent drifts.** Across this
+section's own drafts, three different counts were carried in prose instead
+of read from the actual run output — and all three turned out wrong,
+independently, not as one error propagating: an original claim of "25
+violations, all real" (the real run-1 total was 24); a first attempt at
+correcting that to "23" during this very fact-check (still wrong — also
+24); and a working expectation of "~15 real drift sites" going into the
+first run (the real, disposed count was 13). Three separate instances of
+the same failure mode, not one mistake repeated: a number sat in someone's
+head or in a paragraph instead of being read off the artifact, every single
+time. One of those three instances was this project's own author correcting
+an earlier instance of exactly the same thing and still getting it wrong
+until the actual output files were read line by line. That is the whole
+premise of this tool, demonstrated on its own documentation before anything
+else: re-check ground truth first, every time a number is asserted, not
+only when a bug is suspected.
 
-The first real run against the target produced 25 findings: 23 violations
-and 2 advisories — not "25 violations, all real," which is what an earlier
-draft of this section claimed and which overstated both the count and the
-certainty. Disposed by hand, the 23 violations break down as:
+The first real run against the target produced **24 violations and 2
+advisories** (26 findings total), verified directly from the saved run
+output. Disposed by hand, the 24 violations break down as:
 
 - **13** confirmed live drift — real, previously un-tracked divergence from
-  the stated convention
+  the stated convention; still present, unfixed, in the second run below
+- **1** known false positive — a match inside a commented-out line; also
+  still present in the second run, unresolved; see drift-log.md
 - **6** deliberate, not defects — migrations correctly, intentionally
   irreversible. Six "deliberate" dispositions clustered on one invariant
   turned out to mean the invariant's *definition* was wrong, not that six
   legitimate exceptions existed; see the `reversible-migrations` entry in
   [drift-log.md](drift-log.md) for the fix (a marker convention, not six
-  exemptions)
-- **3** legitimately excluded — properly out of scope, not narrowed to make
-  the run quieter
-- **1** known false positive — a match inside a commented-out line; see
-  drift-log.md
+  exemptions) — resolved before the second run, absent from it entirely
+- **4** legitimately excluded call sites, across **2** files (one file
+  contributed 3 of the 4) — properly out of scope, given a named `except`
+  reason rather than narrowed to make the run quieter; resolved before the
+  second run
 
 The 2 advisories were both the same `suspicious_usage` knowledge check
-firing on `order_number` near a lookup construct. One was a low-risk `LIKE`
-search filter — no action needed. The second, inside an external partner's
-webhook handler, looked on first read like the exact hazard the check
-exists to catch — and was reclassified after reading the surrounding
-contract. That reclassification (**correct-but-unresolvable-lexically**,
-not drift) is the single strongest piece of evidence in this project for
-why v1 stays lexical rather than growing an AST layer for this class of
-invariant; the full writeup is the Perseus-reversal entry in
-[drift-log.md](drift-log.md).
+firing on `order_number` near a lookup construct, in both runs. One was a
+low-risk `LIKE` search filter — no action needed. The second, inside an
+external partner's webhook handler, looked on first read like the exact
+hazard the check exists to catch — and was reclassified after reading the
+surrounding contract. That reclassification
+(**correct-but-unresolvable-lexically**, not drift) is the single strongest
+piece of evidence in this project for why v1 stays lexical rather than
+growing an AST layer for this class of invariant; the full writeup is the
+Perseus-reversal entry in [drift-log.md](drift-log.md).
 
-A second run, after the round-1 fixes (the marker convention above, named
-exclusions), landed at 14 violations — a more credible number than the
-original 25, precisely because it's disposed rather than asserted.
+A second run, after the round-1 fixes (the marker convention and the two
+named exclusions above), landed at **14 violations and 2 advisories** (16
+findings total) — exactly the 13 confirmed-drift plus the 1 unresolved
+false positive from run one, with the 6 deliberate migrations and the 4
+excluded call sites gone entirely rather than merely suppressed. A more
+credible number than the original 25, and for a specific reason: every
+figure in this paragraph was read from a saved run artifact, not carried in
+prose.
 
 **Takeaway**: three honest refusals during translation, rather than three
 approximated checks that would have fired on the wrong thing, is the
