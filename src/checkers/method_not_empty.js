@@ -37,9 +37,17 @@ function isOnlyThrow(strippedBody) {
   return statements.length === 1;
 }
 
-/** params: { scope: string[], method: string, fails_if: string[] } */
+/**
+ * params: { scope: string[], method: string, fails_if: string[], escape_marker?: string }
+ *
+ * escape_marker: a literal annotation string (e.g. "@architecturally-irreversible")
+ * that, if present anywhere in the raw (unstripped) method body, makes the
+ * method pass regardless of fails_if — a deliberate, human-declared escape
+ * from the rule, not a suppressed violation. Trusted on presence only: the
+ * checker does not verify the claim behind the marker is actually true.
+ */
 export async function check(params, invariant, ctx) {
-  const { scope, method, fails_if } = params;
+  const { scope, method, fails_if, escape_marker } = params;
   const files = await findFiles(ctx.targetDir, scope, []);
   const findings = [];
 
@@ -48,6 +56,8 @@ export async function check(params, invariant, ctx) {
     const content = await readFile(absPath, 'utf8');
     const extracted = extractMethodBody(content, method);
     if (!extracted) continue; // method not present in this file — nothing to check
+
+    if (escape_marker && extracted.body.includes(escape_marker)) continue;
 
     const stripped = stripComments(extracted.body);
     const line = lineAt(content, extracted.declIndex);

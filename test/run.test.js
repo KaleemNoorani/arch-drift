@@ -47,6 +47,26 @@ test('main fixture: expected violations, advisories, exemption states, exit 1', 
     )
   );
 
+  // A down() marked @architecturally-irreversible passes even though its body is comment-only;
+  // an unmarked empty down() still fires.
+  assert.ok(
+    !result.findings.some((f) => f.file.includes('merge_legacy_warehouse_data.php')),
+    'marked migration must not be flagged'
+  );
+  assert.ok(
+    result.findings.some(
+      (f) => f.file.includes('create_orders_table.php') && f.invariantId === 'reversible-migrations'
+    ),
+    'unmarked empty down() must still be flagged'
+  );
+
+  // Named except reason (object form) is tracked and reported alongside bare-glob except entries.
+  const ingestExclusions = result.exclusionRecords.find((r) => r.invariantId === 'ingest-only-order-creation');
+  assert.ok(ingestExclusions, 'expected an exclusion record for the named except entry');
+  assert.deepEqual(ingestExclusions.exclusions, [
+    { reason: 'Ingest boundary implementations are the designated legitimate write path.', count: 1 },
+  ]);
+
   const knowledgeIds = result.knowledgeRows.map((k) => k.id);
   assert.ok(knowledgeIds.includes('carton-catalog-ownership'));
   assert.ok(knowledgeIds.includes('upstream-wave-semantics'));

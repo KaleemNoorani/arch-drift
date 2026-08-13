@@ -24,7 +24,10 @@
           ],
           "scope": ["app/**/*.php"],
           "except": [
-            "app/Services/Integrations/*/Ingest*.php",
+            {
+              "paths": ["app/Services/Integrations/*/Ingest*.php"],
+              "reason": "Ingest boundary implementations are the designated legitimate write path."
+            },
             "database/factories/**",
             "database/seeders/**",
             "tests/**"
@@ -62,8 +65,8 @@
 
     {
       "id": "reversible-migrations",
-      "rule": "Every migration is reversible while data is still disposable.",
-      "rationale": "Pre-production schema churn is cheap only because it can be undone. That stops being true the day real data exists, so the flexibility and the reversibility requirement expire together.",
+      "rule": "Every migration is reversible while data is still disposable, or explicitly marked as an accepted exception to that rule.",
+      "rationale": "Pre-production schema churn is cheap only because it can be undone. That stops being true the day real data exists, so the flexibility and the reversibility requirement expire together. Some migrations are genuinely, deliberately irreversible (a destructive backfill, a data merge with no inverse) — that's a legitimate call an author can make, but it has to be made explicitly, in the migration itself, not inferred from an empty down() that could equally be an oversight.",
       "severity": "violation",
       "phases": ["pre-production", "staging"],
       "checks": [
@@ -71,10 +74,11 @@
           "type": "method_not_empty",
           "scope": ["database/migrations/*.php"],
           "method": "down",
-          "fails_if": ["empty_body", "only_comments", "throws"]
+          "fails_if": ["empty_body", "only_comments", "throws"],
+          "escape_marker": "@architecturally-irreversible"
         }
       ],
-      "known_gap": "Brace-matched text extraction, not parsed. A down() method that is syntactically present but semantically incomplete passes. Genuinely irreversible data backfills should carry a registered exemption rather than an empty down()."
+      "known_gap": "Brace-matched text extraction, not parsed. A down() method that is syntactically present but semantically incomplete passes. The escape_marker is trusted on presence only: a down() carrying the '@architecturally-irreversible' comment but not actually irreversible would pass silently. That's a deliberate trust boundary — the marker is a place for a human to put a claim on record, not something this check can verify — not an oversight."
     },
 
     {
