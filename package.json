@@ -1,0 +1,19 @@
+{
+  "name": "arch-drift",
+  "version": "0.1.0",
+  "description": "Lexical architecture-drift checker: verifies a codebase against a declarative architecture.json.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "drift-check": "./bin/drift-check.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "picomatch": "^4.0.2"
+  }
+}
