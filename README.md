@@ -193,6 +193,16 @@ prose rule into one of three buckets before writing a single check:
    a `checks[]` block only where a genuine lexical shadow exists to check
    against; otherwise documentary only.
 
+Bucket 1 looks like the soft, unenforceable half of the three — no artifact
+in a file tree for a lexical tool to look at, filed as out of scope and
+left there. In practice it's the half that caught the most. Every real
+defect this project itself shipped — `src/cli.js` with no invocation guard,
+`--json` claimed done while unimplemented — was exactly a bucket-1 failure:
+"don't claim done without a real run," unenforced, on the tool's own
+development. No `checks[]` entry would have caught either one; only running
+the actual documented command would have. See
+[drift-log.md](drift-log.md) for both.
+
 **Measured ratio from that pass**: of the rules that were candidate codebase
 invariants, 6 translated cleanly into one or more of the six checker types;
 3 were explicitly refused rather than approximated, each for a distinct,
@@ -221,26 +231,57 @@ generalizable reason:
   invariant is out of reach for a lexical-only tool regardless of checker
   design; it needs a parser, not a new pattern type.**
 
-Running the resulting config against the real target produced 25 violations
-and 2 advisories on the first run, all real (not tool artifacts): several
-were deliberate, already-justified exceptions (migrations correctly marked
-irreversible in a comment, with no bug); most were genuine, previously
-un-tracked drift from an established convention. One advisory-level
-`suspicious_usage` hit initially looked like the exact hazard the knowledge
-entry warned about, but reading the surrounding contract (a docblock plus a
-sibling method's matching pattern) showed the lookup was intentional and
-correct — confirming that `suspicious_usage` findings are a starting point
-for a human/model to read code around, not a verdict on their own. A
-`suspicious_usage` check predicted to fire (on a string match found during
-translation) came back clean on the real run, because the match wasn't
-within the proximity window of an actual import/instantiation pattern —
-correct behavior, and a reminder that grep-during-translation and
-grep-with-context-during-checking can disagree.
+**A miscount, caught by the tool's own premise.** Before the first real run,
+the working expectation for how much drift existed — stated from memory, not
+from re-checking the codebase — was around 15 real drift sites. That number
+was wrong. It got corrected only because the actual run was measured against
+ground truth instead of trusted at face value: disposing every finding by
+hand turned up 13 confirmed live drift sites, not 15, and re-grepping the
+target confirmed the lower number, not a bug in the tool's own suppression
+logic. The gap was two people's memory of the codebase being a little
+rosier than the codebase itself — which is the entire premise of this tool,
+demonstrated on its own author before it was demonstrated on anything else.
+The lesson generalizes: when a number doesn't match expectation, re-check
+ground truth first, and only suspect the tool once that's ruled out.
+
+The first real run against the target produced 25 findings: 23 violations
+and 2 advisories — not "25 violations, all real," which is what an earlier
+draft of this section claimed and which overstated both the count and the
+certainty. Disposed by hand, the 23 violations break down as:
+
+- **13** confirmed live drift — real, previously un-tracked divergence from
+  the stated convention
+- **6** deliberate, not defects — migrations correctly, intentionally
+  irreversible. Six "deliberate" dispositions clustered on one invariant
+  turned out to mean the invariant's *definition* was wrong, not that six
+  legitimate exceptions existed; see the `reversible-migrations` entry in
+  [drift-log.md](drift-log.md) for the fix (a marker convention, not six
+  exemptions)
+- **3** legitimately excluded — properly out of scope, not narrowed to make
+  the run quieter
+- **1** known false positive — a match inside a commented-out line; see
+  drift-log.md
+
+The 2 advisories were both the same `suspicious_usage` knowledge check
+firing on `order_number` near a lookup construct. One was a low-risk `LIKE`
+search filter — no action needed. The second, inside an external partner's
+webhook handler, looked on first read like the exact hazard the check
+exists to catch — and was reclassified after reading the surrounding
+contract. That reclassification (**correct-but-unresolvable-lexically**,
+not drift) is the single strongest piece of evidence in this project for
+why v1 stays lexical rather than growing an AST layer for this class of
+invariant; the full writeup is the Perseus-reversal entry in
+[drift-log.md](drift-log.md).
+
+A second run, after the round-1 fixes (the marker convention above, named
+exclusions), landed at 14 violations — a more credible number than the
+original 25, precisely because it's disposed rather than asserted.
 
 **Takeaway**: three honest refusals during translation, rather than three
 approximated checks that would have fired on the wrong thing, is the
 intended failure mode of this tool. A check that's silently wrong is worse
-than an invariant that's silently unchecked.
+than an invariant that's silently unchecked — and that applies as much to
+a headline number in this README as it does to a finding in a report.
 
 ## Development
 
