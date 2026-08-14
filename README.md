@@ -174,33 +174,69 @@ them (worst-to-best: `error` > `violated` > `advisory_only` >
 `no_targets_matched` > `clean`), so one silently-broken check doesn't hide
 behind a sibling that matched real files.
 
+## Positioning
+
+arch-drift isn't the first tool aimed at architectural drift, and it isn't
+trying to be. The adjacent landscape includes at least three distinct
+approaches:
+
+- Tools that detect architectural erosion statistically, from signals in
+  the codebase (churn, coupling, dependency-graph shape) with no
+  user-authored configuration at all — architecture is inferred from
+  behavior, not declared.
+- Tools that model the intended architecture formally (components, layers,
+  allowed relationships) and diff incoming changes against that model —
+  architecture-as-code, checked structurally rather than lexically.
+- Tools that learn an architectural baseline directly from the current
+  state of a repository and flag PRs that deviate from what they've
+  learned — the baseline itself is inferred, not authored.
+
+All three infer structure, or detect divergence from a structure they
+inferred. arch-drift starts from a different premise: some architectural
+decisions exist only because a human made them, not because the codebase
+implies them — a boundary drawn on purpose, a rule adopted for a stated
+reason, a fact declared true. No amount of structural inference recovers a
+decision that isn't visible in the code's current shape; the only way an
+agent (or a person) reliably knows it is if it was written down and
+checked, not rediscovered. That's the actual difference: preserving
+declared intent across a long, agent-assisted build, rather than
+discovering or scoring structure.
+
+**The checker is the enforcement half of a three-part contract.** A human
+authors the **Decision**; a deterministic check provides the
+**Enforcement** for whatever part of it is mechanizable; and `knowledge[]`
+carries the **Context** an agent needs to know but can't prove from code.
+arch-drift is built to be exactly the middle third — nothing more.
+
 ## Case study: translating a real codebase's constraints
 
 This tool was validated once against a real, unrelated production-track
 codebase's own plain-English architecture constraints (not the illustrative
 `examples/architecture.json` above). The translation pass classified every
-prose rule into one of three buckets before writing a single check:
+prose rule into one of the three roles described above — Decision,
+Enforcement, Context — before writing a single check:
 
-1. **Agent behavioral policy** — process rules that leave no artifact in a
-   file tree ("pause before destructive ops," "don't claim done without a
-   real run," "ask before guessing at a physical fact"). These are not
-   drift-checkable by construction; a tool that inspects source files has
-   nothing to look at. Out of scope, not a v1 gap.
-2. **Codebase invariant** — provable from the file tree. These become
-   `checks[]`.
-3. **Declared knowledge** — source-of-truth decisions, identifier hazards,
-   name collisions, unconfirmed assumptions. These go in `knowledge[]`, with
-   a `checks[]` block only where a genuine lexical shadow exists to check
-   against; otherwise documentary only.
+1. **Decision** — a human-authored architectural decision that leaves no
+   artifact in a file tree ("pause before destructive ops," "don't claim
+   done without a real run," "ask before guessing at a physical fact").
+   Not drift-checkable by construction; a tool that inspects source files
+   has nothing to look at. Out of scope, not a v1 gap.
+2. **Enforcement** — the mechanizable part of a decision, provable from the
+   file tree. These become `checks[]`.
+3. **Context** — what an agent needs to know but can't prove from code:
+   source-of-truth decisions, identifier hazards, name collisions,
+   unconfirmed assumptions. These go in `knowledge[]`, with a `checks[]`
+   block only where a genuine lexical shadow exists to check against;
+   otherwise documentary only.
 
-Bucket 1 looks like the soft, unenforceable half of the three — no artifact
-in a file tree for a lexical tool to look at, filed as out of scope and
-left there. In practice it's the half that caught the most. Every real
-defect this project itself shipped — `src/cli.js` with no invocation guard,
-`--json` claimed done while unimplemented — was exactly a bucket-1 failure:
-"don't claim done without a real run," unenforced, on the tool's own
-development. No `checks[]` entry would have caught either one; only running
-the actual documented command would have. See
+Decision looks like the soft, unenforceable third of the three — no
+artifact in a file tree for a lexical tool to look at, filed as out of
+scope and left there. In practice it's the third that caught the most.
+Every real defect this project itself shipped — `src/cli.js` with no
+invocation guard, `--json` claimed done while unimplemented — was exactly
+a Decision-layer failure: "don't claim done without a real run," unenforced,
+on the tool's own development. No `checks[]` entry would have caught either
+one; only running the actual documented command would have. See
 [drift-log.md](drift-log.md) for both.
 
 **Measured ratio from that pass**: of the rules that were candidate codebase
