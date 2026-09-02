@@ -42,16 +42,18 @@ test('CLI: --target pointing at a nonexistent directory -> exit 2, clear message
   assert.match(stderr, /does not exist/);
 });
 
-test('CLI: --config + --target, real fixture -> exit 1, human report has all seven sections', async () => {
+test('CLI: --config + --target, real fixture -> exit 1, human report has all eight sections', async () => {
   const { code, stdout } = await runCli(['--config', mainConfig, '--target', target]);
   assert.equal(code, 1);
   for (const heading of [
-    'Violations', 'Advisories', 'Active Exemptions', 'Exclusions', 'Errors', 'Knowledge', 'Invariant Status',
+    'Violations', 'Advisories', 'Active Exemptions', 'Exclusions', 'Unresolvable',
+    'Errors', 'Knowledge', 'Invariant Status',
   ]) {
     assert.match(stdout, new RegExp(`=== ${heading} ===`), `missing section: ${heading}`);
   }
   assert.match(stdout, /ingest-only-order-creation/);
   assert.match(stdout, /no-legacy-queue-jobs: no_targets_matched/);
+  assert.match(stdout, /InventoryServiceBroken\.php/);
 });
 
 test('CLI: --json produces valid, schema-shaped JSON on stdout matching the process exit code', async () => {
@@ -59,12 +61,13 @@ test('CLI: --json produces valid, schema-shaped JSON on stdout matching the proc
   assert.equal(code, 1);
 
   const report = JSON.parse(stdout); // must not throw — output must be pure JSON, no stray text
-  assert.equal(report.schemaVersion, '2');
+  assert.equal(report.schemaVersion, '3');
   assert.equal(report.exitCode, code);
   assert.equal(report.phase, 'dev');
   assert.ok(Array.isArray(report.violations) && report.violations.length > 0);
   assert.ok(Array.isArray(report.advisories));
   assert.ok(Array.isArray(report.exclusions) && report.exclusions.length > 0);
+  assert.ok(Array.isArray(report.unresolvable) && report.unresolvable.length > 0);
   assert.ok(Array.isArray(report.exemptions.suppressed));
   assert.ok(Array.isArray(report.exemptions.rows));
   assert.ok(Array.isArray(report.knowledge));
@@ -75,7 +78,25 @@ test('CLI: --json produces valid, schema-shaped JSON on stdout matching the proc
     errors: report.errors.length,
     knowledge: report.knowledge.length,
     exclusions: report.exclusions.length,
+    unresolvable: report.unresolvable.length,
   });
+
+  // method_body_forbids contract: real, asserted output for the lineage-preserving-deletes fixture.
+  const lineageViolations = report.violations.filter((v) => v.invariantId === 'lineage-preserving-deletes');
+  assert.equal(lineageViolations.length, 2, 'exactly the direct call and the closure-nested call');
+  assert.ok(lineageViolations.every((v) => v.file.endsWith('InventoryService.php')));
+  const unresolvableEntry = report.unresolvable.find((u) => u.invariantId === 'lineage-preserving-deletes');
+  assert.ok(unresolvableEntry, 'the deliberately-broken file must be reported, not silently dropped');
+  assert.match(unresolvableEntry.file, /InventoryServiceBroken\.php/);
+  assert.equal(unresolvableEntry.kind, 'scanner_limitation');
+
+  // unresolvable[].kind: exactly the three documented values, all present in this fixture,
+  // reason stays free-text prose alongside it (kind for machines, reason for a human).
+  const kinds = new Set(report.unresolvable.map((u) => u.kind));
+  assert.ok(kinds.has('scanner_limitation'));
+  assert.ok(kinds.has('ambiguous'));
+  assert.ok(kinds.has('config_drift'));
+  assert.ok(report.unresolvable.every((u) => typeof u.reason === 'string' && u.reason.length > 0));
 
   // invariants[] contract: one entry per invariant in the config, every documented status
   // represented across this fixture, each check carrying matchedFiles/findings counts.
@@ -87,6 +108,13 @@ test('CLI: --json produces valid, schema-shaped JSON on stdout matching the proc
   assert.ok(statuses.has('clean'));
   assert.ok(statuses.has('no_targets_matched'));
   assert.ok(statuses.has('skipped_by_phase'));
+  assert.ok(statuses.has('unresolvable'));
+
+  // A 'violated' check's unresolvable count rides on the same check object,
+  // not just in the separate top-level unresolvable[] array.
+  const lineage = byId['lineage-preserving-deletes'];
+  assert.equal(lineage.status, 'violated');
+  assert.equal(lineage.checks[0].unresolvable, 1);
 
   const skipped = byId['production-only-check'];
   assert.equal(skipped.status, 'skipped_by_phase');

@@ -15,6 +15,12 @@ actually need.
 
 ## 1. Method-scoped pattern checking (`method_body_forbids` / `method_body_contains`)
 
+**Status: `method_body_forbids` implemented** — `src/checkers/method_scope/php.js`,
+backed by a hand-written PHP lexical scanner (`src/lib/phpMask.js`), PHP only. See
+the README's "Checker types" section for the fail-safe contract and
+[drift-log.md](../drift-log.md) for the lexical-vs-parser design decision.
+`method_body_contains` (the positive/`requires_any` form below) is not yet built.
+
 **This is the one to build first.** It's the clearest story of the three, because
 it's not a hypothetical shape mismatch -- it's a real invariant that currently has
 no safe way to be gated at all, in a codebase already using this tool.

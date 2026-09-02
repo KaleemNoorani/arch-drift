@@ -78,6 +78,102 @@
     },
 
     {
+      "id": "lineage-preserving-deletes",
+      "rule": "Inside moveUnit, a hard delete of an inventory unit is forbidden. Everywhere else in the same file, it's fine.",
+      "rationale": "A full-quantity move updates the same row's location in place; a partial move decrements the source and creates a linked child instead. Deleting the row inside the move path breaks the audit trail's ability to trace lineage. Two other real, legitimate reasons the same file deletes from the same table exist elsewhere in it.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "method_body_forbids",
+          "method": "moveUnit",
+          "patterns": ["InventoryUnit::delete(", "->delete()"],
+          "scope": ["app/Services/InventoryService*.php"]
+        }
+      ],
+      "known_gap": "PHP only. Method boundaries are found by a hand-written lexical scanner (string/comment/heredoc-aware, not a parser) — see src/lib/phpMask.js. A file it can't confidently bound (an unterminated string/comment/heredoc, or more than one method resolving to the same class scope) is never scanned; it's reported in the Unresolvable section/unresolvable[] instead, and produces no finding, by design."
+    },
+
+    {
+      "id": "multi-class-no-disambiguation",
+      "rule": "Fixture invariant demonstrating that two different classes in one file, sharing a method name, are ambiguous without a class param.",
+      "rationale": "Exercises method_body_forbids' class-attribution: neither PrimaryProcessor::process nor SecondaryProcessor::process is a PHP error, but without a class param the checker cannot tell which is meant.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "method_body_forbids",
+          "method": "process",
+          "patterns": ["InventoryUnit::delete("],
+          "scope": ["app/Services/MultiClassAmbiguous.php"]
+        }
+      ],
+      "known_gap": "By design: two distinct classes sharing a method name in one file cannot be resolved without a 'class' param. See multi-class-with-disambiguation for the resolved form."
+    },
+
+    {
+      "id": "multi-class-with-disambiguation",
+      "rule": "Same file as multi-class-no-disambiguation, disambiguated via 'class'.",
+      "rationale": "Proves the 'class' param resolves the same file's ambiguity to exactly one method.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "method_body_forbids",
+          "method": "process",
+          "class": "PrimaryProcessor",
+          "patterns": ["InventoryUnit::delete("],
+          "scope": ["app/Services/MultiClassAmbiguous.php"]
+        }
+      ]
+    },
+
+    {
+      "id": "multi-class-config-drift",
+      "rule": "Fixture invariant demonstrating the fail-safe when 'class' names a class that doesn't exist in the file.",
+      "rationale": "A typo'd or renamed class name must be unresolvable, not silently clean -- a rule that names a nonexistent class looks configured and checks nothing, which is config drift, not a passing check.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "method_body_forbids",
+          "method": "process",
+          "class": "TypoProcessorDoesNotExist",
+          "patterns": ["InventoryUnit::delete("],
+          "scope": ["app/Services/MultiClassAmbiguous.php"]
+        }
+      ]
+    },
+
+    {
+      "id": "class-keyword-edge-cases",
+      "rule": "Fixture invariant proving ::class references, the masked word 'class' in comments/strings, and a function-nested class do not confuse attribution when disambiguated.",
+      "rationale": "Exercises three real Laravel shapes at once: ::class constants, incidental use of the word 'class' in prose, and a conditionally-declared nested class with its own same-named method.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "method_body_forbids",
+          "method": "process",
+          "class": "OuterProcessor",
+          "patterns": ["InventoryUnit::delete("],
+          "scope": ["app/Services/ClassKeywordEdgeCases.php"]
+        }
+      ]
+    },
+
+    {
+      "id": "anonymous-class-collision",
+      "rule": "Fixture invariant demonstrating that two anonymous classes sharing a method name are permanently unresolvable.",
+      "rationale": "Laravel migrations are anonymous classes. Two anonymous classes in one file defining the same method name can never be disambiguated by a 'class' param, since anonymous classes have no name -- this is a permanent limitation, not a configuration gap to close.",
+      "severity": "violation",
+      "checks": [
+        {
+          "type": "method_body_forbids",
+          "method": "process",
+          "patterns": ["InventoryUnit::delete("],
+          "scope": ["app/Services/TwoAnonymousClasses.php"]
+        }
+      ],
+      "known_gap": "Permanent: anonymous classes have no name, so a method-name collision between two of them cannot be resolved by any 'class' value."
+    },
+
+    {
       "id": "no-deprecated-helper-usage",
       "rule": "Fixture invariant demonstrating the 'clean' status: matches real files, finds nothing.",
       "rationale": "Exercises the clean status path for the invariants[] report contract.",

@@ -279,3 +279,109 @@ happening to the people and the assistant writing the documentation
 *about* those checks — in a section of the README explicitly about not
 overclaiming results. The fix, both times, was identical: stop asserting a
 number and go read the file it's supposed to describe.
+
+---
+
+## Design decision: method-scoped checking stays lexical, not a parser
+
+**Source**: this repo, `method_body_forbids` design pass
+**Not a disposition** — this entry records a design decision, not a
+finding's four-way disposition; included here because the reasoning behind
+it is exactly the kind of thing that otherwise gets carried in someone's
+head instead of checked, which the rest of this log is about avoiding.
+
+The backlog's lead item (`docs/CHECKER-BACKLOG.md`) needed a method-scoped
+checker: a forbidden call gated inside one named method, legal everywhere
+else in the same file. Two paths were on the table: a hand-written PHP
+lexical scanner (recognize string/comment/heredoc shapes, brace-count
+around them), or a real parser dependency.
+
+**The scanner was approved on one ground, after an initial framing was
+explicitly rejected**: the first draft of this decision argued the scanner
+"preserves language-agnosticism." That's wrong, and was corrected before
+anything shipped — a scanner that understands PHP's quoting, escaping,
+`$`-interpolation, and heredoc/nowdoc terminators *is* a PHP tokenizer,
+hand-rolled. It is not more language-agnostic than a real parser; it means
+owning the bugs instead of inheriting them. The real grounds the decision
+actually rests on:
+
+1. **The fail-safe changes the risk shape, not the bug count.** Unresolvable
+   → skip and report means a scanner bug surfaces as a visible coverage
+   hole, never a false deny. A parser's own failure mode (can't parse this
+   file either) relocates to the identical fail-safe — a parser doesn't
+   remove the need for one, it just moves what triggers it.
+2. **`nikic/php-parser` is a PHP library; arch-drift is Node.** Using it
+   means shelling out to a PHP interpreter — reintroducing the exact
+   external-binary dependency this project explicitly rejected once
+   already (the ripgrep decision, v1 scaffold). That's a real, structural
+   objection independent of code quality.
+
+Before approving, the Node-native alternative was checked rather than
+assumed away: `php-parser` (glayzzle, npm) — pure JS, genuinely zero
+transitive dependencies (`npm install` adds exactly one package, 1.1MB in
+`node_modules`), actively maintained (pushed the same day this was
+checked, 565 stars, not archived), and fast (≈0.5ms on an 18-line real
+fixture file, ≈2.8ms on a synthetic 785-line service class with strings,
+comments, and heredocs deliberately containing stray unbalanced braces —
+correctly parsed through all of them). With `suppressErrors: true` it never
+throws; it returns a normal AST plus a populated `errors` array on
+malformed input, a clean structured signal. None of that changes the
+outcome, because the fail-safe argument survives either way — but the
+decision doesn't get to claim "no viable alternative existed" without
+having looked, and now it's looked.
+
+**What actually decided it**: taking a parser, even this well-behaved a
+one, makes `method_body_forbids` PHP-only *and* fractures what "a checker
+type" means across the other six — the README's "no AST parser, no
+language-parsing dependency" stops being true without a qualifier. The
+hand-written scanner is PHP-only too (see the README's v1-scope
+qualification), but it's PHP-only as an honestly-scoped tokenizer solving
+exactly the opaque-region problem this one checker has, not as a
+general-purpose dependency the project has taken on. The fail-safe is what
+makes either choice safe; staying dependency-free and narrowly scoped is
+what was chosen given that the safety argument was a wash.
+
+---
+
+## Report-shape review before freezing schemaVersion 3: one field added, two rejected
+
+**Source**: this repo, `method_body_forbids` follow-up (class-awareness +
+status accounting)
+**Not a disposition** — a design-review record, same as the entry above.
+
+Before pushing the commit that would freeze `schemaVersion: "3"`, a
+deliberate pass asked: is there anything else about to be needed in this
+shape, given the version can't be revised for free once it ships? Three
+candidates surfaced. One was added; two were named and explicitly
+rejected rather than silently left out.
+
+**Added**: `unresolvable[]` entries gained a `kind` enum
+(`config_drift` | `ambiguous` | `scanner_limitation`) alongside the
+existing free-text `reason`. The bar that justified it: a named consumer
+(a pre-merge hook, already described, already needing to distinguish
+"config is stale, fail the build" from "scanner hit a known limit, just
+warn") with a described need `reason` cannot safely serve — prose isn't
+under version control in any meaningful sense; it can be reworded for
+clarity with no version bump firing, and a consumer string-matching it
+would silently stop working. A `kind` enum makes that a real, versioned
+contract instead.
+
+**Rejected as speculative**:
+- A `known_gap` passthrough on findings (surfacing architecture.json's
+  human-facing caveat text on the JSON `violations[]`/`advisories[]`
+  entries themselves). No consumer asked for this; it would let a
+  hypothetical plugin annotate findings with their documented
+  limitations, which is a real idea with no real requester yet.
+- Which class/scope a `method_body_forbids` finding resolved to, exposed
+  on the finding itself (useful for debugging attribution, not required
+  by anything that reads this contract today).
+
+**Why it matters**: the same discipline that kept these two out is what
+justified adding `kind` in the first place — a named consumer with a
+described need, not "this seems like it'll be useful eventually." A
+report shape that grows a field every time something *might* help is
+indistinguishable, from the outside, from one that never got reviewed at
+all; the reader can't tell which fields are load-bearing and which are
+guesses. Recording the two "no"s here is what makes the one "yes"
+credible — this file is the version-controlled trace of that reasoning
+that the `reason` string it's about was explicitly said not to be.

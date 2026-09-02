@@ -65,10 +65,21 @@ function renderInvariantStatus(invariantsReport) {
     const checkLines = inv.checks.map((c) => {
       if (c.status === 'skipped_by_phase') return `    ${c.checkId} — skipped_by_phase`;
       if (c.status === 'error') return `    ${c.checkId} — error`;
-      return `    ${c.checkId} — matched ${c.matchedFiles} file(s), ${c.findings} finding(s)`;
+      // The unresolvable count rides on this same line, unconditionally when
+      // nonzero -- never buried only in the separate Unresolvable section.
+      // A check can be 'violated' and still have unresolvable files; the
+      // reader fixing the violation must not lose the other signal.
+      const unresolvedNote = c.unresolvable > 0 ? `, ${c.unresolvable} UNRESOLVABLE` : '';
+      return `    ${c.checkId} — matched ${c.matchedFiles} file(s), ${c.findings} finding(s)${unresolvedNote}`;
     });
     return [`  ${inv.id}: ${inv.status}`, ...checkLines].join('\n');
   });
+}
+
+function renderUnresolvable(unresolvableRecords) {
+  return unresolvableRecords.map(
+    (u) => `  [${u.kind}] [${u.invariantId}] ${u.checkId}\n    file: ${u.file}\n    reason: ${u.reason}`
+  );
 }
 
 function renderErrors(errors) {
@@ -98,6 +109,7 @@ export function renderReport(result) {
     section('Advisories', advisories.map(findingLine)),
     section('Active Exemptions', renderExemptions(result)),
     section('Exclusions', renderExclusions(result.exclusionRecords)),
+    section('Unresolvable', renderUnresolvable(result.unresolvableRecords)),
     section('Errors', renderErrors(result.errors)),
     section('Knowledge', renderKnowledge(result.knowledgeRows)),
     section('Invariant Status', renderInvariantStatus(result.invariantsReport)),

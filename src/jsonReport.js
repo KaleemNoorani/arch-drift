@@ -3,7 +3,7 @@ import { computeExitCode } from './report.js';
 // Bump on any change to this shape, breaking or additive — external tooling
 // (e.g. a Claude Code plugin) depends on it being stable, not a debug dump,
 // and needs to be able to tell when the contract has moved.
-export const JSON_SCHEMA_VERSION = '2';
+export const JSON_SCHEMA_VERSION = '3';
 
 function exemptionSummary(exemption) {
   return {
@@ -46,6 +46,7 @@ export function buildJsonReport(result, doc) {
       errors: result.errors.length,
       knowledge: result.knowledgeRows.length,
       exclusions: exclusions.length,
+      unresolvable: result.unresolvableRecords.length,
     },
     violations,
     advisories,
@@ -61,6 +62,7 @@ export function buildJsonReport(result, doc) {
       })),
     },
     exclusions,
+    unresolvable: result.unresolvableRecords,
     errors: result.errors,
     knowledge: result.knowledgeRows,
     invariants: result.invariantsReport,
