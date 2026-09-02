@@ -12,13 +12,19 @@ function buildKnowledgeRows(doc) {
 // one overall status. 'error' outranks everything (the check never ran to
 // completion, worse than a confirmed violation); 'no_targets_matched'
 // outranks 'clean' because it's the silent-failure case this whole feature
-// exists to surface, not a pass.
+// exists to surface, not a pass. 'unresolvable' outranks 'no_targets_matched':
+// files genuinely existed and one or more couldn't be verified at all, which
+// is a stronger signal than "nothing in scope." A confirmed violation still
+// outranks both -- a known problem is more actionable than an unknown -- but
+// its unresolvable count must still ride on the same report line (see
+// report.js) so it's never hidden behind a 'violated' status word.
 const STATUS_RANK = {
   clean: 1,
   no_targets_matched: 2,
-  advisory_only: 3,
-  violated: 4,
-  error: 5,
+  unresolvable: 3,
+  advisory_only: 4,
+  violated: 5,
+  error: 6,
 };
 
 function worstStatus(statuses) {
@@ -39,6 +45,7 @@ export async function runChecks(doc, targetDir) {
   const findings = [];
   const errors = [];
   const exclusionRecords = []; // [{ invariantId, checkId, exclusions: [{reason, count}] }]
+  const unresolvableRecords = []; // [{ invariantId, checkId, file, reason, kind }]
   const checkStatusesByInvariant = new Map(); // invariantId -> [{ checkId, type, status, matchedFiles, findings }]
   const skippedByPhase = new Set(); // invariant ids filtered out before running
 
@@ -67,18 +74,25 @@ export async function runChecks(doc, targetDir) {
       if (!dispatch) {
         errors.push({ invariantId: entry.id, checkId, message: `Unknown checker type '${check.type}'` });
         if (isInvariant) {
-          checkStatuses.push({ checkId, type: check.type, status: 'error', matchedFiles: null, findings: null });
+          checkStatuses.push({
+            checkId, type: check.type, status: 'error', matchedFiles: null, findings: null, unresolvable: null,
+          });
         }
         continue;
       }
 
       const exclusionsForThisCheck = [];
       let matchedCount = null;
+      let unresolvableCount = 0;
       const ctx = {
         targetDir,
         recordExclusions: (rows) => exclusionsForThisCheck.push(...rows),
         recordMatchedCount: (n) => {
           matchedCount = n;
+        },
+        recordUnresolvable: (file, reason, kind) => {
+          unresolvableCount += 1;
+          unresolvableRecords.push({ invariantId: entry.id, checkId, file, reason, kind });
         },
       };
 
@@ -102,14 +116,20 @@ export async function runChecks(doc, targetDir) {
         if (isInvariant) {
           let status;
           if (matchedCount === 0) status = 'no_targets_matched';
-          else if (results.length === 0) status = 'clean';
-          else status = severity === 'violation' ? 'violated' : 'advisory_only';
-          checkStatuses.push({ checkId, type: check.type, status, matchedFiles: matchedCount, findings: results.length });
+          else if (results.length > 0) status = severity === 'violation' ? 'violated' : 'advisory_only';
+          else if (unresolvableCount > 0) status = 'unresolvable';
+          else status = 'clean';
+          checkStatuses.push({
+            checkId, type: check.type, status,
+            matchedFiles: matchedCount, findings: results.length, unresolvable: unresolvableCount,
+          });
         }
       } catch (err) {
         errors.push({ invariantId: entry.id, checkId, message: err.message });
         if (isInvariant) {
-          checkStatuses.push({ checkId, type: check.type, status: 'error', matchedFiles: null, findings: null });
+          checkStatuses.push({
+            checkId, type: check.type, status: 'error', matchedFiles: null, findings: null, unresolvable: null,
+          });
         }
       }
     }
@@ -130,6 +150,7 @@ export async function runChecks(doc, targetDir) {
           status: 'skipped_by_phase',
           matchedFiles: null,
           findings: null,
+          unresolvable: null,
         })),
       };
     }
@@ -155,5 +176,6 @@ export async function runChecks(doc, targetDir) {
     knowledgeRows,
     exclusionRecords,
     invariantsReport,
+    unresolvableRecords,
   };
 }
