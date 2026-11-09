@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "operational/1",
+  "asOf": "2030-04-06T12:00:00.000Z",
+  "policy": { "maxAgeSeconds": 3600, "requireIndependentSources": true },
+  "subjects": ["parcel-line-aurora"],
+  "sources": [
+    {
+      "id": "orders", "artifactId": "fictional-order-cards-A", "lineageRoot": "storybook-order-origin",
+      "asOf": "2030-04-06T12:00:00.000Z", "capturedAt": "2030-04-06T12:05:00.000Z",
+      "completeThrough": "2030-04-06T12:00:00.000Z", "complete": true,
+      "records": [{ "id": "card-aurora", "subjectId": "parcel-line-aurora", "quantity": 8 }]
+    },
+    {
+      "id": "events", "artifactId": "fictional-parcel-journal-A", "lineageRoot": "storybook-parcel-origin",
+      "asOf": "2030-04-06T12:00:00.000Z", "capturedAt": "2030-04-06T12:06:00.000Z",
+      "completeThrough": "2030-04-06T12:00:00.000Z", "complete": true,
+      "records": [
+        { "id": "journal-aurora-1", "subjectId": "parcel-line-aurora", "kind": "ship", "quantity": 3, "occurredAt": "2030-04-06T10:00:00.000Z", "sequence": 1 }
+      ]
+    }
+  ]
+}
