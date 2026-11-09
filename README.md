@@ -205,18 +205,18 @@ value.
 
 ### `method_body_forbids`: method-scoped forbidden calls (PHP only)
 
-Motivating case: a shared service class has one method where deleting a
-row breaks an audit trail, and two other methods, in the *same file*, that
-legitimately delete from the same table for unrelated, documented reasons.
-`forbidden_call`'s scope is file-granular; it cannot express "forbidden
-here, fine three methods down." `method_body_forbids` can:
+Synthetic motivating case: a fictional community-museum site renders page
+previews. Clearing its shared preview cache inside `renderPreview` would
+invalidate other previews, while an administrator's `resetPreviewCache` may
+clear it intentionally. Both methods live in one file. `forbidden_call` is
+file-granular; `method_body_forbids` can distinguish them:
 
 ```json
 {
   "type": "method_body_forbids",
-  "method": "moveUnit",
-  "patterns": ["InventoryUnit::delete(", "->delete()"],
-  "scope": ["app/Services/InventoryService.php"]
+  "method": "renderPreview",
+  "patterns": ["PreviewCache::flush(", "->flush()"],
+  "scope": ["app/Services/PreviewCacheService.php"]
 }
 ```
 
@@ -278,10 +278,8 @@ reported unresolvable more often than a real parser would need to. One
 specific known gap: an anonymous class instantiated with constructor
 arguments that themselves contain a brace (`new class(function () { ... })
 extends Foo { ... }`) can misidentify the class's own opening brace —
-exotic and not seen in real Laravel code, where anonymous classes
-(migrations, chiefly) take no constructor arguments at all, but worth
-naming rather than implying the scanner handles every syntactically legal
-form. That's the traded-off cost of staying dependency-free and
+an edge case worth naming rather than implying the scanner handles every
+syntactically legal form. That's the traded-off cost of staying dependency-free and
 language-scoped to exactly this one checker type; see the design
 discussion in [drift-log.md](drift-log.md) for why a parser dependency was
 evaluated and not taken.
@@ -421,126 +419,38 @@ authors the **Decision**; a deterministic check provides the
 carries the **Context** an agent needs to know but can't prove from code.
 arch-drift is built to be exactly the middle third — nothing more.
 
-## Case study: translating a real codebase's constraints
+## Synthetic walkthrough: checking a fictional museum site
 
-This tool was validated once against a real, unrelated production-track
-codebase's own plain-English architecture constraints (not the illustrative
-`examples/architecture.json` above). The translation pass classified every
-prose rule into one of the three roles described above — Decision,
-Enforcement, Context — before writing a single check:
+This walkthrough uses only the fictional `test/fixtures/target`
+tree. Its rules are invented to exercise Arch-Drift's checker contracts; no
+result below is a measurement of a production system. The static fixture
+models a community-museum website with scheduled theme activation, built-in
+exhibit rendering, reversible migrations, and preview-cache safety.
 
-1. **Decision** — a human-authored architectural decision that leaves no
-   artifact in a file tree ("pause before destructive ops," "don't claim
-   done without a real run," "ask before guessing at a physical fact").
-   Not drift-checkable by construction; a tool that inspects source files
-   has nothing to look at. Out of scope, not a v1 gap.
-2. **Enforcement** — the mechanizable part of a decision, provable from the
-   file tree. These become `checks[]`.
-3. **Context** — what an agent needs to know but can't prove from code:
-   source-of-truth decisions, identifier hazards, name collisions,
-   unconfirmed assumptions. These go in `knowledge[]`, with a `checks[]`
-   block only where a genuine lexical shadow exists to check against;
-   otherwise documentary only.
+Run the static checker from the repository root:
 
-Decision looks like the soft, unenforceable third of the three — no
-artifact in a file tree for a lexical tool to look at, filed as out of
-scope and left there. In practice it's the third that caught the most.
-Every real defect this project itself shipped — `src/cli.js` with no
-invocation guard, `--json` claimed done while unimplemented — was exactly
-a Decision-layer failure: "don't claim done without a real run," unenforced,
-on the tool's own development. No `checks[]` entry would have caught either
-one; only running the actual documented command would have. See
-[drift-log.md](drift-log.md) for both.
+```sh
+node bin/drift-check.js --config test/fixtures/architecture.json --target test/fixtures/target --json
+```
 
-**Measured ratio from that pass**: of the rules that were candidate codebase
-invariants, 6 translated cleanly into one or more of the six checker types;
-3 were explicitly refused rather than approximated, each for a distinct,
-generalizable reason:
+The synthetic target deliberately contains violations, so the command exits
+`1`. Its JSON uses `schemaVersion: "3"`. Invariant statuses include
+`violated`, `advisory_only`, `clean`, `no_targets_matched`,
+`skipped_by_phase`, and `unresolvable`. For example, the
+`preview-cache-safety` check reports executable cache-flush calls inside
+`renderPreview`, ignores identical text in comments and literals, and
+reports a malformed method boundary separately as unresolvable. A confirmed
+violation remains visible alongside that coverage gap.
 
-- **A creation-boundary invariant** (only one designated path may create a
-  given kind of row) failed because the target codebase's real business
-  logic lives inside one large shared service class rather than being
-  file-separable — the one legitimate write site and everything else share
-  a file, so no glob-based `except` can carve out "this one method" from
-  "the rest of this file." **Lesson: `forbidden_call`'s scoping is
-  file-granular, not method-granular — an invariant that depends on a
-  method boundary inside a shared file cannot be expressed in v1, and
-  approximating it (excepting the whole file) would silently stop checking
-  the exact thing the invariant cares about.**
-- **A cross-surface parity invariant** (two symbol sets defined in separate
-  files, in separate languages, must agree) had no home in any of the six
-  checker types, because every checker evaluates a single file or a single
-  scope against a pattern — none diff two independently-discovered sets
-  against each other. **Lesson: v1 has no set-comparison primitive; this is
-  the strongest signal for what a v2 checker type would need to add.**
-- **A UI-correctness invariant** ("every displayed reference to another
-  entity must be a real link, never static text") required knowing what a
-  rendered value *represents*, not just matching text against it — an AST
-  or template-semantics problem, not a lexical one. **Lesson: this class of
-  invariant is out of reach for a lexical-only tool regardless of checker
-  design; it needs a parser, not a new pattern type.**
+The fixture also includes an active exemption, an expired exemption, a
+named exclusion, a deliberate migration marker, and an unknown checker type
+in a separate error config. They exercise reporting paths; they do not
+stand in for real incidents. See [drift-log.md](drift-log.md) for
+project-internal defects and the explicitly labeled synthetic exercise.
 
-**Three hand-maintained numbers, three independent drifts.** Across this
-section's own drafts, three different counts were carried in prose instead
-of read from the actual run output — and all three turned out wrong,
-independently, not as one error propagating: an original claim of "25
-violations, all real" (the real run-1 total was 24); a first attempt at
-correcting that to "23" during this very fact-check (still wrong — also
-24); and a working expectation of "~15 real drift sites" going into the
-first run (the real, disposed count was 13). Three separate instances of
-the same failure mode, not one mistake repeated: a number sat in someone's
-head or in a paragraph instead of being read off the artifact, every single
-time. One of those three instances was this project's own author correcting
-an earlier instance of exactly the same thing and still getting it wrong
-until the actual output files were read line by line. That is the whole
-premise of this tool, demonstrated on its own documentation before anything
-else: re-check ground truth first, every time a number is asserted, not
-only when a bug is suspected.
-
-The first real run against the target produced **24 violations and 2
-advisories** (26 findings total), verified directly from the saved run
-output. Disposed by hand, the 24 violations break down as:
-
-- **13** confirmed live drift — real, previously un-tracked divergence from
-  the stated convention; still present, unfixed, in the second run below
-- **1** known false positive — a match inside a commented-out line; also
-  still present in the second run, unresolved; see drift-log.md
-- **6** deliberate, not defects — migrations correctly, intentionally
-  irreversible. Six "deliberate" dispositions clustered on one invariant
-  turned out to mean the invariant's *definition* was wrong, not that six
-  legitimate exceptions existed; see the `reversible-migrations` entry in
-  [drift-log.md](drift-log.md) for the fix (a marker convention, not six
-  exemptions) — resolved before the second run, absent from it entirely
-- **4** legitimately excluded call sites, across **2** files (one file
-  contributed 3 of the 4) — properly out of scope, given a named `except`
-  reason rather than narrowed to make the run quieter; resolved before the
-  second run
-
-The 2 advisories were both the same `suspicious_usage` knowledge check
-firing on `order_number` near a lookup construct, in both runs. One was a
-low-risk `LIKE` search filter — no action needed. The second, inside an
-external partner's webhook handler, looked on first read like the exact
-hazard the check exists to catch — and was reclassified after reading the
-surrounding contract. That reclassification
-(**correct-but-unresolvable-lexically**, not drift) is the single strongest
-piece of evidence in this project for why v1 stays lexical rather than
-growing an AST layer for this class of invariant; the full writeup is the
-external-partner-webhook-reversal entry in [drift-log.md](drift-log.md).
-
-A second run, after the round-1 fixes (the marker convention and the two
-named exclusions above), landed at **14 violations and 2 advisories** (16
-findings total) — exactly the 13 confirmed-drift plus the 1 unresolved
-false positive from run one, with the 6 deliberate migrations and the 4
-excluded call sites gone entirely rather than merely suppressed. A more
-credible number than the original 25, and for a specific reason: every
-figure in this paragraph was read from a saved run artifact, not carried in
-prose.
-
-**Takeaway**: three honest refusals during translation, rather than three
-approximated checks that would have fired on the wrong thing, is the
-intended failure mode of this tool. A check that's silently wrong is worse
-than an invariant that's silently unchecked — and that applies as much to
-a headline number in this README as it does to a finding in a report.
+The separate [operational walkthrough](#experimental-operational-verifier)
+uses fictional parcel snapshots to show PASS, FAIL, UNKNOWN, and stale
+evidence without making any production-readiness claim.
 
 ## Development
 

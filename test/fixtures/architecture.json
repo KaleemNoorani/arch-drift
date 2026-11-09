@@ -1,32 +1,35 @@
 {
   "version": "1.0",
-  "project": "fixture-target",
-  "description": "Fixture architecture.json exercising every checker type, exemption state, and knowledge-section path for arch-drift's own test suite.",
-
-  "phase": "dev",
-  "phases": ["legacy", "dev", "staging", "production"],
-
+  "project": "fictional-museum-fixture",
+  "description": "Entirely invented community-museum checker fixture; all people, services, and outcomes are synthetic.",
+  "phase": "preview",
+  "phases": [
+    "draft",
+    "preview",
+    "public"
+  ],
   "invariants": [
     {
-      "id": "ingest-only-order-creation",
-      "rule": "Only the ingest boundary may create FulfillmentOrder rows.",
-      "rationale": "FulfillmentOrder is a local projection of an upstream order. A second creation path means rows exist with no upstream counterpart.",
+      "id": "scheduled-theme-activation",
+      "rule": "Only the theme scheduler may activate the public color palette.",
+      "rationale": "A preview editor renders candidate colors without changing the active theme in this fictional site.",
       "severity": "violation",
       "checks": [
         {
           "type": "forbidden_call",
           "patterns": [
-            "FulfillmentOrder::create",
-            "FulfillmentOrder::firstOrCreate",
-            "FulfillmentOrder::updateOrCreate",
-            "FulfillmentOrder::insert",
-            "new FulfillmentOrder"
+            "MuseumTheme::activate(",
+            "MuseumTheme::forceActivate("
           ],
-          "scope": ["app/**/*.php"],
+          "scope": [
+            "app/**/*.php"
+          ],
           "except": [
             {
-              "paths": ["app/Services/Integrations/*/Ingest*.php"],
-              "reason": "Ingest boundary implementations are the designated legitimate write path."
+              "paths": [
+                "app/Services/Theme/ApplyTheme.php"
+              ],
+              "reason": "The fictional scheduler is the designated theme activation entrypoint."
             },
             "database/factories/**",
             "database/seeders/**",
@@ -34,65 +37,85 @@
           ]
         }
       ],
-      "known_gap": "Lexical. A two-line construct-then-save split across statements evades the pattern list."
+      "known_gap": "Literal patterns cannot prove that activation was scheduled or authorized."
     },
-
     {
-      "id": "search-against-own-data",
-      "rule": "Search resolves against local data only.",
-      "rationale": "An external index becomes a second source of truth that diverges silently.",
+      "id": "built-in-exhibit-renderer",
+      "rule": "Exhibit descriptions use one of the built-in renderers.",
+      "rationale": "The fictional site chooses local text rendering for its public descriptions.",
       "severity": "violation",
       "checks": [
         {
           "type": "forbidden_dependency",
-          "manifests": ["composer.json", "package.json"],
-          "packages": ["quicksearch/quicksearch-php", "quicksearch-js", "@quicksearch/client"],
+          "manifests": [
+            "composer.json",
+            "package.json"
+          ],
+          "packages": [
+            "example/fictional-remote-renderer"
+          ],
           "known_gap": "Textual match on the manifest; a transitive dependency pulling the same package in would not be caught."
         },
         {
           "type": "config_value_allowlist",
-          "file": "config/scout.php",
+          "file": "config/render.php",
           "key": "driver",
-          "allowed": ["database", "collection", "null"],
+          "allowed": [
+            "markdown",
+            "plain",
+            "html"
+          ],
           "known_gap": "Reads the committed config file as text. A driver set only through a runtime environment variable is invisible."
         }
-      ]
+      ],
+      "known_gap": "Committed configuration cannot expose a runtime override."
     },
-
     {
-      "id": "reversible-migrations",
-      "rule": "Every migration is reversible while data is still disposable, or explicitly marked as an accepted exception to that rule.",
-      "rationale": "Pre-production schema churn is cheap only because it can be undone. Deliberately irreversible migrations are a legitimate call, but it must be made explicitly via the marker, not inferred from an empty down().",
+      "id": "preview-migrations-reversible",
+      "rule": "Preview-phase migrations have a rollback body or an explicit irreversible marker.",
+      "rationale": "The marker records a human exception; the checker cannot authenticate its truth.",
       "severity": "violation",
-      "phases": ["legacy", "dev", "staging"],
+      "phases": [
+        "draft",
+        "preview"
+      ],
       "checks": [
         {
           "type": "method_not_empty",
-          "scope": ["database/migrations/*.php"],
+          "scope": [
+            "database/migrations/*.php"
+          ],
           "method": "down",
-          "fails_if": ["empty_body", "only_comments", "throws"],
+          "fails_if": [
+            "empty_body",
+            "only_comments",
+            "throws"
+          ],
           "escape_marker": "@architecturally-irreversible"
         }
       ],
       "known_gap": "Brace-matched text extraction, not parsed. The escape_marker is trusted on presence only, not verified for truthfulness."
     },
-
     {
-      "id": "lineage-preserving-deletes",
-      "rule": "Inside moveUnit, a hard delete of an inventory unit is forbidden. Everywhere else in the same file, it's fine.",
-      "rationale": "A full-quantity move updates the same row's location in place; a partial move decrements the source and creates a linked child instead. Deleting the row inside the move path breaks the audit trail's ability to trace lineage. Two other real, legitimate reasons the same file deletes from the same table exist elsewhere in it.",
+      "id": "preview-cache-safety",
+      "rule": "Rendering a page preview must not flush the shared preview cache.",
+      "rationale": "An administrator reset is a different method in the same fictional service.",
       "severity": "violation",
       "checks": [
         {
           "type": "method_body_forbids",
-          "method": "moveUnit",
-          "patterns": ["InventoryUnit::delete(", "->delete()"],
-          "scope": ["app/Services/InventoryService*.php"]
+          "method": "renderPreview",
+          "patterns": [
+            "PreviewCache::flush(",
+            "->flush()"
+          ],
+          "scope": [
+            "app/Services/PreviewCacheService*.php"
+          ]
         }
       ],
-      "known_gap": "PHP only. Method boundaries are found by a hand-written lexical scanner (string/comment/heredoc-aware, not a parser) — see src/lib/phpMask.js. A file it can't confidently bound (an unterminated string/comment/heredoc, or more than one method resolving to the same class scope) is never scanned; it's reported in the Unresolvable section/unresolvable[] instead, and produces no finding, by design."
+      "known_gap": "PHP lexical scanner reports unresolvable method boundaries instead of guessing."
     },
-
     {
       "id": "multi-class-no-disambiguation",
       "rule": "Fixture invariant demonstrating that two different classes in one file, sharing a method name, are ambiguous without a class param.",
@@ -102,13 +125,16 @@
         {
           "type": "method_body_forbids",
           "method": "process",
-          "patterns": ["InventoryUnit::delete("],
-          "scope": ["app/Services/MultiClassAmbiguous.php"]
+          "patterns": [
+            "PreviewCache::flush("
+          ],
+          "scope": [
+            "app/Services/MultiClassAmbiguous.php"
+          ]
         }
       ],
       "known_gap": "By design: two distinct classes sharing a method name in one file cannot be resolved without a 'class' param. See multi-class-with-disambiguation for the resolved form."
     },
-
     {
       "id": "multi-class-with-disambiguation",
       "rule": "Same file as multi-class-no-disambiguation, disambiguated via 'class'.",
@@ -119,12 +145,15 @@
           "type": "method_body_forbids",
           "method": "process",
           "class": "PrimaryProcessor",
-          "patterns": ["InventoryUnit::delete("],
-          "scope": ["app/Services/MultiClassAmbiguous.php"]
+          "patterns": [
+            "PreviewCache::flush("
+          ],
+          "scope": [
+            "app/Services/MultiClassAmbiguous.php"
+          ]
         }
       ]
     },
-
     {
       "id": "multi-class-config-drift",
       "rule": "Fixture invariant demonstrating the fail-safe when 'class' names a class that doesn't exist in the file.",
@@ -135,28 +164,34 @@
           "type": "method_body_forbids",
           "method": "process",
           "class": "TypoProcessorDoesNotExist",
-          "patterns": ["InventoryUnit::delete("],
-          "scope": ["app/Services/MultiClassAmbiguous.php"]
+          "patterns": [
+            "PreviewCache::flush("
+          ],
+          "scope": [
+            "app/Services/MultiClassAmbiguous.php"
+          ]
         }
       ]
     },
-
     {
       "id": "class-keyword-edge-cases",
       "rule": "Fixture invariant proving ::class references, the masked word 'class' in comments/strings, and a function-nested class do not confuse attribution when disambiguated.",
-      "rationale": "Exercises three real Laravel shapes at once: ::class constants, incidental use of the word 'class' in prose, and a conditionally-declared nested class with its own same-named method.",
+      "rationale": "Exercises three PHP lexical shapes at once: ::class constants, incidental use of the word 'class' in prose, and a conditionally-declared nested class with its own same-named method.",
       "severity": "violation",
       "checks": [
         {
           "type": "method_body_forbids",
           "method": "process",
           "class": "OuterProcessor",
-          "patterns": ["InventoryUnit::delete("],
-          "scope": ["app/Services/ClassKeywordEdgeCases.php"]
+          "patterns": [
+            "PreviewCache::flush("
+          ],
+          "scope": [
+            "app/Services/ClassKeywordEdgeCases.php"
+          ]
         }
       ]
     },
-
     {
       "id": "anonymous-class-collision",
       "rule": "Fixture invariant demonstrating that two anonymous classes sharing a method name are permanently unresolvable.",
@@ -166,56 +201,70 @@
         {
           "type": "method_body_forbids",
           "method": "process",
-          "patterns": ["InventoryUnit::delete("],
-          "scope": ["app/Services/TwoAnonymousClasses.php"]
+          "patterns": [
+            "PreviewCache::flush("
+          ],
+          "scope": [
+            "app/Services/TwoAnonymousClasses.php"
+          ]
         }
       ],
       "known_gap": "Permanent: anonymous classes have no name, so a method-name collision between two of them cannot be resolved by any 'class' value."
     },
-
     {
       "id": "no-deprecated-helper-usage",
-      "rule": "Fixture invariant demonstrating the 'clean' status: matches real files, finds nothing.",
+      "rule": "Synthetic clean-status case: a scoped pattern is absent.",
       "rationale": "Exercises the clean status path for the invariants[] report contract.",
       "severity": "violation",
       "checks": [
         {
           "type": "forbidden_call",
-          "patterns": ["LegacyHelper::doTheThing"],
-          "scope": ["app/**/*.php"]
+          "patterns": [
+            "DeprecatedMuseumHelper::invoke("
+          ],
+          "scope": [
+            "app/**/*.php"
+          ]
         }
       ]
     },
-
     {
       "id": "no-legacy-queue-jobs",
-      "rule": "Fixture invariant demonstrating the 'no_targets_matched' status: scope matches zero files.",
+      "rule": "Synthetic no-targets case: the optional jobs directory is absent.",
       "rationale": "Exercises the no_targets_matched status path — a stand-in for a typo'd scope glob or an exhausted convention.",
       "severity": "violation",
       "checks": [
         {
           "type": "forbidden_call",
-          "patterns": ["dispatch("],
-          "scope": ["app/Jobs/**/*.php"]
+          "patterns": [
+            "dispatch("
+          ],
+          "scope": [
+            "app/Jobs/**/*.php"
+          ]
         }
       ]
     },
-
     {
-      "id": "production-only-check",
-      "rule": "Fixture invariant demonstrating the 'skipped_by_phase' status: only active in a phase we're not currently in.",
+      "id": "public-only-check",
+      "rule": "Synthetic phase-skipped case: active only when the site is public.",
       "rationale": "Exercises the skipped_by_phase status path.",
       "severity": "violation",
-      "phases": ["production"],
+      "phases": [
+        "public"
+      ],
       "checks": [
         {
           "type": "forbidden_call",
-          "patterns": ["whatever"],
-          "scope": ["app/**/*.php"]
+          "patterns": [
+            "whatever"
+          ],
+          "scope": [
+            "app/**/*.php"
+          ]
         }
       ]
     },
-
     {
       "id": "dual-check-rollup-demo",
       "rule": "Fixture invariant demonstrating rollup: one check clean, one no_targets_matched, invariant reports the worse of the two.",
@@ -224,113 +273,150 @@
       "checks": [
         {
           "type": "forbidden_call",
-          "patterns": ["LegacyHelper::doTheThing"],
-          "scope": ["app/**/*.php"]
+          "patterns": [
+            "DeprecatedMuseumHelper::invoke("
+          ],
+          "scope": [
+            "app/**/*.php"
+          ]
         },
         {
           "type": "forbidden_call",
-          "patterns": ["whatever"],
-          "scope": ["app/Jobs/**/*.php"]
+          "patterns": [
+            "whatever"
+          ],
+          "scope": [
+            "app/Jobs/**/*.php"
+          ]
         }
       ]
     },
-
     {
-      "id": "integrations-degrade",
-      "rule": "External-system failures log and continue.",
-      "rationale": "A partner being unreachable should slow the operation, not fail it.",
+      "id": "optional-thumbnail-degrades",
+      "rule": "An unavailable optional thumbnail provider is handled.",
+      "rationale": "The fictional gallery can show a placeholder image.",
       "severity": "advisory",
       "checks": [
         {
           "type": "handler_present",
-          "scope": ["app/Services/Integrations/**/*.php"],
-          "requires_any": ["catch (", "->rescue(", "Http::retry", "report("],
-          "flags": ["->throw()"]
+          "scope": [
+            "app/Services/Thumbnails/**/*.php"
+          ],
+          "requires_any": [
+            "catch (",
+            "report("
+          ],
+          "flags": [
+            "->throw()"
+          ]
         }
       ],
-      "known_gap": "Proves a handler is present, not that it degrades correctly."
+      "known_gap": "A textual handler does not prove correct recovery."
     }
   ],
-
   "exemptions": [
     {
-      "invariant": "ingest-only-order-creation",
-      "paths": ["app/Services/Legacy/OrderBackfill.php"],
-      "reason": "One-off backfill written before the ingest boundary existed. Slated for deletion, not migration.",
-      "valid_through": "staging",
-      "granted": "2026-01-01"
+      "invariant": "scheduled-theme-activation",
+      "paths": [
+        "app/Services/Legacy/DemoThemeSeeder.php"
+      ],
+      "reason": "Synthetic demo-only theme path demonstrating an active exemption.",
+      "valid_through": "preview",
+      "granted": "2030-01-01"
     },
     {
-      "invariant": "integrations-degrade",
-      "paths": ["app/Services/Integrations/PartnerX/**"],
-      "reason": "Deliberately expired fixture: demonstrates the EXPIRED path without waiting for a real phase transition.",
-      "valid_through": "legacy",
-      "granted": "2025-01-01"
+      "invariant": "optional-thumbnail-degrades",
+      "paths": [
+        "app/Services/Thumbnails/Unfinished/**"
+      ],
+      "reason": "Synthetic expired exemption used to exercise reporting.",
+      "valid_through": "draft",
+      "granted": "2030-01-01"
     },
     {
-      "invariant": "reversible-migrations",
-      "paths": ["database/migrations/9999_never_exists.php"],
+      "invariant": "preview-migrations-reversible",
+      "paths": [
+        "database/migrations/9999_never_exists.php"
+      ],
       "reason": "Fixture demonstrating a registered exemption with no currently-matching findings.",
-      "valid_through": "staging",
-      "granted": "2026-01-01"
+      "valid_through": "preview",
+      "granted": "2030-01-01"
     }
   ],
-
   "knowledge": [
     {
-      "id": "order-number-vs-upstream-id",
+      "id": "exhibit-slug-vs-uuid",
       "kind": "identifier_hazard",
-      "claim": "order_number is a human-readable display value. Lookups and joins use upstream_order_id.",
-      "rationale": "The display value looks enough like a key that it gets used as one.",
+      "claim": "In this invented site, display_slug is editable while exhibit_uuid is stable.",
+      "rationale": "A lexical check can surface candidate uses but cannot establish identifier intent.",
       "status": "decided",
       "severity": "advisory",
       "checks": [
         {
           "type": "suspicious_usage",
-          "symbol": "order_number",
-          "near": ["where", "whereIn", "find", "firstWhere", "join", "->on("],
+          "symbol": "display_slug",
+          "near": [
+            "where",
+            "whereIn",
+            "find",
+            "firstWhere",
+            "join",
+            "->on("
+          ],
           "window_chars": 60,
-          "scope": ["app/**/*.php", "resources/js/**/*.js", "resources/js/**/*.vue"],
-          "except": ["resources/views/**", "app/Http/Resources/**"]
+          "scope": [
+            "app/**/*.php",
+            "resources/js/**/*.js",
+            "resources/js/**/*.vue"
+          ],
+          "except": [
+            "resources/views/**",
+            "app/Http/Resources/**"
+          ]
         }
       ],
-      "known_gap": "Proximity heuristic over a character window; expected to produce false positives."
+      "known_gap": "Substring proximity can produce false positives."
     },
     {
-      "id": "carton-catalog-ownership",
+      "id": "exhibit-label-ownership",
       "kind": "source_of_truth",
-      "claim": "The carton catalog is owned upstream. This service mirrors it read-only.",
-      "rationale": "Both systems can plausibly claim ownership of box dimensions.",
+      "claim": "The fictional editorial catalog owns public exhibit labels.",
+      "rationale": "A documented example decision, not an inferred fact about another system.",
       "status": "decided"
     },
     {
-      "id": "cart-name-collision",
+      "id": "gallery-name-collision",
       "kind": "name_collision",
-      "claim": "'cart' means a physical picking cart in warehouse contexts and an item container in commerce contexts.",
-      "rationale": "The collision is invisible in conversation and in code review.",
+      "claim": "A gallery page and a physical gallery room are distinct concepts in this fictional site.",
+      "rationale": "A name collision can hide a mistaken assumption.",
       "status": "decided"
     },
     {
-      "id": "upstream-wave-semantics",
+      "id": "thumbnail-delay-unverified",
       "kind": "unverified_assumption",
-      "claim": "The upstream platform's 'wave' may not mean what 'wave' means here.",
-      "rationale": "Borrowed terminology is trusted only as far as it has been confirmed.",
+      "claim": "The optional image provider delay tolerance is unverified in this hypothetical site.",
+      "rationale": "An unverified assumption should not become a rule.",
       "status": "unconfirmed"
     },
     {
-      "id": "partner-timeout-budget-unverified",
+      "id": "image-budget-unverified",
       "kind": "unverified_assumption",
-      "claim": "Whether 'wave' timing budgets in partner integrations match local expectations has not been confirmed.",
-      "rationale": "Included to exercise an unconfirmed knowledge entry that also carries a check.",
+      "claim": "The fictional image refresh budget has not been chosen.",
+      "rationale": "Exercises an unconfirmed knowledge entry carrying a check.",
       "status": "unconfirmed",
       "severity": "advisory",
       "checks": [
         {
           "type": "suspicious_usage",
-          "symbol": "wave",
-          "near": ["ship", "pick"],
+          "symbol": "image_budget",
+          "near": [
+            "refresh",
+            "render"
+          ],
           "window_chars": 40,
-          "scope": ["app/**/*.php"]
+          "scope": [
+            "app/**/*.php"
+          ]
         }
       ]
     }

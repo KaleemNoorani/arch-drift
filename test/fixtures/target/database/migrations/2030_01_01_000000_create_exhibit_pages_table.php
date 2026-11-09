@@ -8,9 +8,10 @@ return new class extends Migration
 {
     public function up()
     {
-        Schema::create('fulfillment_orders', function (Blueprint $table) {
+        Schema::create('exhibit_pages', function (Blueprint $table) {
             $table->id();
-            $table->string('upstream_order_id');
+            $table->string('exhibit_uuid');
+            $table->string('display_slug');
             $table->timestamps();
         });
     }
