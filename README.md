@@ -1,519 +1,169 @@
 # arch-drift
 
-Arch-Drift provides a static architecture checker and a separate, experimental
-operational verifier. The static checker reads a declarative `architecture.json`
-describing a codebase's architectural invariants, checks a target codebase, and
-reports violations. It never modifies the target or `architecture.json` — a
-human owns that file. The operational prototype verifies a fictional parcel
-invariant from local synthetic JSON fixtures; it is not production-ready.
+A small, dependency-light checker that verifies a codebase against architectural
+decisions a human wrote down in `architecture.json`.
 
-## Static architecture checker
+## Why it exists
 
-```
-node bin/drift-check.js --config <path-to-architecture.json> --target <path-to-codebase>
-```
+Some architectural decisions exist only because someone made them: a boundary
+drawn on purpose, a rule adopted for a stated reason. Nothing in the code's
+current shape recovers them, so they drift, especially in a long,
+agent-assisted build. Arch-Drift keeps the decision, a deterministic check for
+the part that can be mechanized, and the context that can't be proven from code
+in one declarative file. It never modifies the target or `architecture.json`;
+a human owns that file.
 
-Both flags are required; there is no default target (it never falls back to
-the current directory). `bin/drift-check.js` is the entrypoint declared in
-`package.json`'s `bin` field and is canonical; `node src/cli.js` (same flags)
-works identically since it's the same module with an invocation guard, not a
-second, different entrypoint.
+The static checker is **lexical**: it reads files as text, with no AST for
+most checkers. See [Limits](#limits) before relying on it.
 
-Exit codes:
+## Quick start
 
-- `0` — clean, no unsuppressed violations
-- `1` — at least one unsuppressed violation-severity finding
-- `2` — tool/config error (malformed invariant, unreadable target, unknown
-  checker type). Errors dominate violations because they mean the run was
-  incomplete, not merely that it found problems.
-
-From the repository root, this fixture command demonstrates the static CLI:
+Requires Node.js 20 or newer.
 
 ```sh
-node bin/drift-check.js --config test/fixtures/architecture.json --target test/fixtures/target --json
+git clone https://github.com/KaleemNoorani/arch-drift.git
+cd arch-drift
+npm ci
+node bin/drift-check.js --config test/fixtures/architecture.json --target test/fixtures/target
 ```
 
-The fixture intentionally contains violations, so this command exits `1`.
+`--config` and `--target` are both required; there is no default target. The
+fixture is a fictional museum website that intentionally contains violations,
+so this command exits `1`. On Windows PowerShell, use `npm.cmd` in place of
+`npm`.
 
-### `--json`
+## Example
 
-Pass `--json` for a stable, versioned JSON contract instead of the human
-report, meant for external tooling (e.g. a Claude Code plugin) to consume:
+A rule from the fixture: rendering a preview must not flush the shared cache,
+while an administrator's reset method in the same file may.
 
-```
+```json
 {
-  "schemaVersion": "3",
-  "exitCode": 0 | 1 | 2,
-  "phase": "...",
-  "summary": { "violations", "advisories", "suppressed", "errors", "knowledge", "exclusions", "unresolvable" },
-  "violations": [ { invariantId, checkId, severity, rationale, file, line, matchedText } ],
-  "advisories": [ ...same shape... ],
-  "exemptions": {
-    "suppressed": [ { ...finding, exemption: { invariant, paths, reason, validThrough, granted } } ],
-    "rows": [ { invariant, paths, reason, validThrough, granted, status, suppressedCount } ]
-  },
-  "exclusions": [ { invariantId, checkId, reason, count } ],
-  "unresolvable": [ { invariantId, checkId, file, reason, "kind": "config_drift" | "ambiguous" | "scanner_limitation" } ],
-  "errors": [ { invariantId, checkId, message } ],
-  "knowledge": [ { id, kind, claim, rationale, status, ... } ],
-  "invariants": [
+  "id": "preview-cache-safety",
+  "rationale": "An administrator reset is a different method in the same fictional service.",
+  "severity": "violation",
+  "checks": [
     {
-      id, severity, phases,
-      "status": "violated" | "advisory_only" | "clean" | "no_targets_matched" | "unresolvable" | "skipped_by_phase",
-      "checks": [ { checkId, type, status, matchedFiles, findings, unresolvable } ]
+      "type": "method_body_forbids",
+      "method": "renderPreview",
+      "patterns": ["PreviewCache::flush(", "->flush()"],
+      "scope": ["app/Services/PreviewCacheService*.php"]
     }
   ]
 }
 ```
 
-`schemaVersion` bumps on any change to this shape, breaking or additive, so
-a consumer can tell when it's moved (bumped 2 → 3 for `unresolvable[]` and
-the `unresolvable` status/count). Exit code is duplicated at the top level
-and as the process exit code, so a consumer can read either.
-`invariants[].checks[].status` can also be `error` (the check didn't
-complete) in addition to the invariant-level six; `matchedFiles`/
-`findings`/`unresolvable` are all `null` for `skipped_by_phase` and `error`
-checks, since none of them ran to produce a real count.
+Result (abridged):
 
-`unresolvable[]` follows the same precedent as `exclusions[]`: an additive
-array, populated only by checkers that can produce this outcome
-(`method_body_forbids` today), reported alongside `violations[]`. **A
-consumer that only reads `violations[]` sees nothing new here and is
-unaffected**, but a file appearing in `unresolvable[]` was never scanned
-for that check; its absence from `violations[]` is not evidence it's
-clean.
-
-Each entry carries both `kind` and `reason`, deliberately not one or the
-other: `kind` is a fixed enum for machines to branch on, `reason` stays
-free-text prose for whoever's reading the report. Do not try to derive one
-from the other — `reason` will get reworded for clarity over time and is
-not itself part of this contract, only its presence is; `kind` is what's
-actually versioned. There are exactly three values today:
-
-- `config_drift` — a `class` param names something that no longer exists
-  in the file (a typo, a rename). The one kind that's about the config
-  being stale, not the code being ambiguous or the scanner falling short.
-- `ambiguous` — the code has more than one legitimate candidate (two
-  classes sharing a method name, one or more of them anonymous, or a
-  literal duplicate) and nothing in the config picks one.
-- `scanner_limitation` — the hand-written scanner (not a parser; see
-  `method_body_forbids` below) couldn't bound a brace or a literal region
-  at all — an unterminated string, comment, or heredoc.
-
-**A consumer built against this version that encounters a `kind` value it
-doesn't recognize in some future schema version must treat it at least as
-seriously as `config_drift`** — the most action-demanding of the three,
-today — never as safe to ignore and never as a reason to throw. That's
-what lets this enum grow later (a version bump, same as any other change
-here) without silently breaking whatever's already reading it.
-
-Unlike `exclusions[]`, this *does* reach into the status contract, on
-purpose: `invariants[].checks[].unresolvable` is a count that rides on the
-**same check object** as `matchedFiles`/`findings`, always present
-(default `0`) once a check has actually run. If a check has zero findings
-and one or more unresolvable files, its status is `unresolvable`, never
-silently `clean` — a check that scanned nothing real is not the same thing
-as a check that scanned everything and passed. If a check has *both* real
-findings and unresolvable files, its status stays `violated`/
-`advisory_only` (a confirmed problem still outranks an unknown), but the
-nonzero `unresolvable` count stays on that same check object — a consumer
-reading only the status word for a `violated` check would otherwise miss
-that some files in scope were never actually checked. Rank order,
-worst-to-best: `error` > `violated` > `advisory_only` > `unresolvable` >
-`no_targets_matched` > `clean`. arch-drift's own exit code still does not
-change for `unresolvable` — that stays a signal in the data, not a gate
-arch-drift enforces itself (see `method_body_forbids`'s fail-safe below;
-a consumer that needs to gate on it, e.g. a pre-merge hook, should read
-this field directly).
-
-## Experimental operational verifier
-
-The operational verifier has its own CLI and `operational/1` report contract.
-It reads only JSON files in `test/fixtures/demo-fulfillment`, uses an explicit
-`--now` value, and has no database or network adapter. Its synthetic parcel
-lines illustrate three outcomes:
-
-```sh
-node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/pass.json --now 2030-04-06T12:10:00.000Z --json
-node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/fail.json --now 2030-04-06T12:10:00.000Z --json
-node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/unknown.json --now 2030-04-06T12:10:00.000Z --json
-node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/pass.json --now 2030-04-06T13:10:00.000Z --json
+```
+[preview-cache-safety] app/Services/PreviewCacheService.php:40
+  matched: PreviewCache::flush($pageId);
+  rationale: An administrator reset is a different method in the same fictional service.
 ```
 
-In the fictional walkthrough, `parcel-line-aurora` ordered eight units and
-shipped three: the remaining five are allowed, so the result is **PASS**
-(exit `0`). `parcel-line-comet` ordered four but has a five-unit shipment:
-**FAIL** (exit `1`). `parcel-line-nebula` has an event source whose declared
-coverage ends before the as-of cutoff: **UNKNOWN** (exit `2`). An incomplete
-source cannot establish that no further shipments occurred, so it cannot
-silently produce PASS. The fourth command reuses the passing fixture with a
-later clock; its evidence is stale and yields **UNKNOWN** (exit `2`) rather
-than a false PASS. Declared provenance and completeness are not independently
-authenticated.
+The identical call in `resetPreviewCache`, and the same text inside comments,
+strings, heredocs, and nowdocs, are not reported. A file whose method boundary
+cannot be determined is listed as `unresolvable` and is never scanned.
 
-See [the operational prototype contract](docs/OPERATIONAL-PROTOTYPE.md) for
-ordering, evidence, recovery guidance, and JSON fields. These commands use
-only original synthetic fixtures and do not exercise production systems.
+## Features
 
-## Static checker v1 scope
-
-Checks are **lexical only** — reading files as text, regexing, and globbing.
-No AST parser, no language-parsing dependency. Where a check can't reliably
-express an invariant without one, that's a documented `known_gap`, not
-something v1 tries to solve.
-
-**One qualification to that claim**: `method_body_forbids` (see below) uses
-a hand-written lexical scanner to safely bound a method's body — it still
-isn't a parser (no grammar, no AST, no notion of PHP semantics), but it is
-a real PHP tokenizer, and it is PHP-only, not language-agnostic like the
-other six checker types. Stating this plainly rather than letting a reader
-assume otherwise: a checker type that quietly only works on one language,
-in a tool that markets itself as language-agnostic, is the same failure
-shape as a config that's silently missing.
-
-Dependencies: [`picomatch`](https://github.com/micromatch/picomatch) for glob
-matching. No ripgrep, no other external binaries — file walking uses Node's
-built-in `fs.readdir(..., { recursive: true })`.
+- Declarative rules (`invariants[]`), each with a rationale, a severity
+  (`violation` or `advisory`), and one or more checks.
+- Phases and time-boxed `exemptions[]`; an expired exemption stops suppressing
+  its finding.
+- Named `except` exclusions that keep their reason in the report.
+- `knowledge[]` entries for claims that can't be checked, including
+  `unconfirmed` ones that always surface in the report.
+- A status for every invariant, so "ran clean" is distinguishable from "matched
+  no files" and "could not verify".
+- A versioned `--json` report for other tools.
 
 ## Checker types
 
-Each checker lives in its own file under `src/checkers/`; adding a new type
-means adding a file there, not editing a dispatch switch (see
-`src/checkers/index.js`, which auto-discovers modules in its own directory
-**and one level of subdirectories** — a subdirectory groups per-language
-siblings of one checker family, e.g. `method_scope/php.js`; it is not a
-namespacing convention for anything else).
-
 | type | what it does |
 | --- | --- |
-| `forbidden_call` | flags scoped files containing any of a list of literal call patterns |
-| `forbidden_dependency` | flags forbidden package names appearing in root-level manifest files |
-| `config_value_allowlist` | extracts a key's literal value from a PHP config file and checks it against an allowlist |
-| `method_not_empty` | brace-matched extraction of a named method body; flags empty/comment-only/throws-only bodies, unless the body carries an `escape_marker` annotation |
-| `handler_present` | flags files missing any of a set of handling patterns, and separately flags occurrences of specific risky patterns |
-| `suspicious_usage` | proximity heuristic: flags a symbol appearing within N characters of any of a set of patterns |
-| `method_body_forbids` | **PHP only** (`src/checkers/method_scope/php.js`) — flags forbidden call patterns inside one named method's body specifically, leaving the same call elsewhere in the file alone. See below. |
+| `forbidden_call` | flags scoped files containing literal call patterns |
+| `forbidden_dependency` | flags forbidden package names in root-level manifest files |
+| `config_value_allowlist` | checks a PHP config key's literal value against an allowlist |
+| `method_not_empty` | flags empty, comment-only, or throws-only method bodies unless an `escape_marker` is present |
+| `handler_present` | flags files missing required handling patterns, or containing risky ones |
+| `suspicious_usage` | flags a symbol appearing within N characters of given patterns |
+| `method_body_forbids` | **PHP only.** Flags forbidden patterns inside one named method's body |
 
-Each checker exports `type` (string) and `async check(checkParams, invariant, ctx)`,
-returning an array of `{ file, line, matchedText }`. `ctx` also carries
-`recordExclusions(rows)`, which `forbidden_call` and `suspicious_usage` call
-to report which `except` entries suppressed files and how many (see
-`except` below); and `recordUnresolvable(file, reason)`, which
-`method_body_forbids` calls when a file's method boundary can't be
-confidently bounded (see below). Neither call affects the checker's return
-value.
+`suspicious_usage` matches plain substrings by default, so `where` also matches
+inside `nowhere`. Set `"word_boundary": true` on a check to require whole-token
+matches; existing configs are unaffected. Details for every type are in the
+[checker reference](docs/CHECKER-REFERENCE.md).
 
-### `method_body_forbids`: method-scoped forbidden calls (PHP only)
+## Reports and exit codes
 
-Synthetic motivating case: a fictional community-museum site renders page
-previews. Clearing its shared preview cache inside `renderPreview` would
-invalidate other previews, while an administrator's `resetPreviewCache` may
-clear it intentionally. Both methods live in one file. `forbidden_call` is
-file-granular; `method_body_forbids` can distinguish them:
+By default the report is human-readable. `--json` prints a versioned
+(`schemaVersion` `"3"`) contract for external tooling instead.
 
-```json
-{
-  "type": "method_body_forbids",
-  "method": "renderPreview",
-  "patterns": ["PreviewCache::flush(", "->flush()"],
-  "scope": ["app/Services/PreviewCacheService.php"]
-}
-```
+| exit | meaning |
+| --- | --- |
+| `0` | clean: no unsuppressed violation-severity findings |
+| `1` | at least one unsuppressed violation-severity finding |
+| `2` | tool or config error (malformed config, unreadable target, unknown checker type) |
 
-It extracts the named method's body and searches only within it. Doing
-that safely means recognizing PHP's string, `//`/`#`/`/* */` comment, and
-heredoc/nowdoc literal shapes well enough to treat their contents as
-opaque — a brace inside a string, or the pattern text itself inside a
-comment, must never desync the boundary or produce a match. That
-recognition is implemented as a hand-written lexical scanner
-(`src/lib/phpMask.js`) — deliberately not a parser: it has no notion of
-PHP expressions, control flow, or scoping, only of where PHP goes opaque.
-
-**This is the one checker type that is PHP-only, not language-agnostic.**
-A second language would need its own sibling scanner recognizing that
-language's own opaque-region shapes (a JS template literal, a Python
-triple-quoted string) — there's nothing to generalize, because those are
-different lexical problems that happen to rhyme, not one problem with a
-language parameter.
-
-**Class attribution, and the optional `class` param.** A same-named method
-appearing more than once in one file is not automatically a problem — two
-unrelated classes in the same file legitimately having their own
-`process()` is routine, valid PHP, not a duplicate declaration. The
-scanner attributes every method match to its *innermost* enclosing
-class/trait/interface/anonymous-class scope (so a class conditionally
-declared inside a function, itself nested in another class's method, is
-its own scope, not its outer class's, even though its text falls inside
-the outer class's braces). When a method name resolves to more than one
-distinct scope, an optional `class` param disambiguates:
-
-```json
-{ "type": "method_body_forbids", "method": "process", "class": "PrimaryProcessor", "patterns": [...], "scope": [...] }
-```
-
-If `class` names something that doesn't exist anywhere in the file — a
-typo, a rename, config drift — that's **unresolvable, not a silent pass**:
-a rule that names a class no longer in the file looks configured and
-checks nothing, which is the same failure as a missing config, one layer
-down. **Anonymous classes** (`new class { ... }` — every Laravel 11
-migration is one) are their own scope but have no name, so they can never
-be targeted by `class`; two anonymous classes in one file both defining
-the same method name is **permanently** unresolvable, not a gap `class`
-can close — there's nothing to name.
-
-**Fail-safe, by design**: if a method's boundary can't be confidently
-resolved — an unterminated string, comment, or heredoc anywhere in the
-file; unbalanced braces before EOF; more than one method resolving to the
-same class scope; a named `class` absent from the file; or two+ classes
-each defining the method with no `class` param to pick one — the file is
-never scanned for a violation. It's reported via `recordUnresolvable` into
-`unresolvable[]` (see `--json` above) and the **Unresolvable** report
-section, and skipped. A coverage hole is the acceptable outcome here; a
-false violation is not.
-
-`known_gap`: this is a hand-written scanner, not the reference PHP
-implementation. Genuinely pathological input (nested heredocs with
-unusual identifiers, PHP syntax this scanner doesn't yet recognize) may be
-reported unresolvable more often than a real parser would need to. One
-specific known gap: an anonymous class instantiated with constructor
-arguments that themselves contain a brace (`new class(function () { ... })
-extends Foo { ... }`) can misidentify the class's own opening brace —
-an edge case worth naming rather than implying the scanner handles every
-syntactically legal form. That's the traded-off cost of staying dependency-free and
-language-scoped to exactly this one checker type; see the design
-discussion in [drift-log.md](drift-log.md) for why a parser dependency was
-evaluated and not taken.
-
-### `suspicious_usage`: `word_boundary`
-
-By default `suspicious_usage` matches `symbol` and every `near` entry as plain,
-case-sensitive substrings, so `"where"` also matches inside `nowhere`,
-`somewhere`, and `whereIn`. Set the optional check-level boolean
-`"word_boundary": true` to require whole-token matches:
-
-```json
-{ "type": "suspicious_usage", "symbol": "display_slug", "near": ["where", "->on("],
-  "window_chars": 60, "scope": ["app/**/*.php"], "word_boundary": true }
-```
-
-| source text | default | `word_boundary: true` |
-| --- | --- | --- |
-| `where` | match | match |
-| `nowhere`, `somewhere` | match | no match |
-| `whereIn`, `where_`, `where2` | match | no match |
-| `->where(` for pattern `->where(` | match | match |
-
-Semantics, which apply to both `symbol` and `near`:
-
-- Matching stays literal (patterns are never regular expressions) and
-  case-sensitive.
-- A *word character* is a Unicode letter, Unicode number, or underscore
-  (`[\p{L}\p{N}_]`). Neighbouring characters are read by Unicode code point,
-  so astral letters and digits count and surrogate pairs are never split.
-- Each edge of a pattern is judged independently, and only when the pattern's
-  own edge character is a word character: such an edge must not be adjacent to
-  another word character. Edges that are punctuation (`->where(`, `DB::`) carry
-  no constraint, and punctuation inside a pattern (`DB::table`) is matched
-  literally.
-- Neighbours are taken from the whole file, not the `window_chars` slice, so a
-  token clipped by the window edge never counts as a whole word. The window
-  distance itself is unchanged, and `matchedText` is still the raw window.
-- Every occurrence of a `near` pattern inside the window is considered; an
-  invalid one (`nowhere`) does not hide a later valid one.
-- The value must be a boolean. Any other type, and empty `symbol`/`near`
-  strings, is reported in `errors[]` and exits `2`.
-
-Only checks that set `word_boundary: true` change behavior; existing configs are
-unaffected, and `schemaVersion` stays `3`.
-
-### `except`: named exclusions
-
-`forbidden_call` and `suspicious_usage` both take an `except` list. Each
-entry is either a bare glob string (no justification recorded) or
-`{ "paths": [...], "reason": "..." }` (a named exclusion). Both forms can be
-mixed in the same list. Named exclusions and their per-run match counts
-print in the report's **Exclusions** section — the point is that an
-exclusion's reason should survive as long as the exclusion does; an opaque
-path glob doesn't carry its own justification forward the way a `reason`
-string does.
-
-### `method_not_empty`'s `escape_marker`
-
-An optional literal annotation string (e.g. `"@architecturally-irreversible"`).
-If it appears anywhere in the method's raw body, the check passes
-regardless of `fails_if` — a human-declared, on-the-record exception to the
-rule itself, distinct from an `exemptions[]` entry (which suppresses a
-violation after the fact). The marker is trusted on presence only: the
-checker has no way to verify the claim behind it is true.
-
-## architecture.json shape
-
-- `phase` / `phases`: the document's current phase, and the ordered list of
-  all phases. An invariant's own `phases` array (if present) filters when it's
-  active; absent means always active.
-- `invariants[]`: each has `id`, `severity` (`violation` | `advisory`,
-  defaults to `violation`), `rationale`, and a `checks[]` array — one or more
-  independent detection strategies for the *same* atomic invariant (not a way
-  to bundle unrelated assertions; those get separate invariant ids). Each
-  check may carry its own `known_gap`; if absent, the invariant-level
-  `known_gap` applies to all its checks.
-- `exemptions[]`: `{ invariant, paths?, reason, valid_through, granted }`.
-  Matches by invariant id (required) and optional path globs (absent means
-  all findings for that invariant). `valid_through` names a phase; the
-  exemption is valid through that phase and expires once the current phase
-  moves *strictly past* it — not at it. An expired exemption still prints in
-  the exemptions section marked `EXPIRED`; its finding is evaluated normally
-  from then on, so it drives exit code 1 exactly when its invariant is
-  violation-severity.
-- `knowledge[]`: documented architectural claims that aren't necessarily
-  machine-checkable. An entry with a `checks[]` array runs through the same
-  pipeline as an invariant. An entry with `status: "unconfirmed"` always
-  prints in the report's Knowledge section (marked `UNCONFIRMED`), whether or
-  not it has checks — that's the surface meant to stop an unverified
-  assumption from quietly becoming load-bearing. Entries without `checks` are
-  documentary only and always print there too.
-
-See [`examples/architecture.json`](examples/architecture.json) for a full
-worked example.
-
-## Report format
-
-Eight sections: **Violations**, **Advisories**, **Active Exemptions**,
-**Exclusions**, **Unresolvable**, **Errors**, **Knowledge**, **Invariant
-Status**. Every finding shows its invariant id, `file:line`, the matched
-text, and the invariant's `rationale` verbatim. Advisories never affect the
-exit code. Pass `--json` for the same data as a stable, versioned JSON
-contract (see `--json` above) instead of this text report.
-
-**Unresolvable** lists every file a checker declined to scan because it
-couldn't confidently bound what it was looking at (currently produced only
-by `method_body_forbids`; see above). It never contributes a violation and
-never changes the exit code — that's a deliberate design choice, not an
-oversight: arch-drift's own exit code stays a signal about confirmed
-findings, and a consumer that needs to treat "some files were unscannable"
-as its own gate (a pre-merge hook, for instance) should read this section
-or `unresolvable[]` directly rather than infer it from a clean exit.
-
-**Invariant Status** exists because an invariant that produced zero findings
-is otherwise invisible in the report — and "ran clean" and "never actually
-ran" look identical without it. Each invariant gets one line with its
-overall status, and one line per check with how many files it matched, how
-many findings came out, and (when nonzero) how many files it couldn't
-verify at all:
-
-- `violated` / `advisory_only` — produced findings, matching its severity
-- `clean` — ran, matched files, found nothing
-- `unresolvable` — ran, matched files, but one or more couldn't be
-  confidently verified (currently only `method_body_forbids` produces
-  this — see above) and zero findings came from the rest. Never confused
-  with `clean`: a check that skipped a file it couldn't verify has not
-  demonstrated the same thing as a check that looked at everything and
-  found nothing.
-- `no_targets_matched` — ran, but its `scope` matched zero files (a typo'd
-  pattern or an exhausted convention look identical to this on their own —
-  that's the case this status exists to catch)
-- `skipped_by_phase` — filtered out before running by the current `phase`
-- `error` — the check didn't complete (e.g. an unknown checker `type`)
-
-A check with real findings *and* unresolvable files keeps its
-`violated`/`advisory_only` status (a confirmed problem still outranks an
-unknown), but its per-check line still shows the unresolvable count
-alongside `matched N file(s), M finding(s)` — never only in the separate
-**Unresolvable** section below, where it would be easy to fix the
-confirmed findings and never notice a file was skipped entirely.
-
-An invariant with multiple `checks[]` rolls up to the worst status across
-them (worst-to-best: `error` > `violated` > `advisory_only` >
-`unresolvable` > `no_targets_matched` > `clean`), so one silently-broken
-check doesn't hide behind a sibling that matched real files.
-
-## Positioning
-
-arch-drift isn't the first tool aimed at architectural drift, and it isn't
-trying to be. The adjacent landscape includes at least three distinct
-approaches:
-
-- Tools that detect architectural erosion statistically, from signals in
-  the codebase (churn, coupling, dependency-graph shape) with no
-  user-authored configuration at all — architecture is inferred from
-  behavior, not declared.
-- Tools that model the intended architecture formally (components, layers,
-  allowed relationships) and diff incoming changes against that model —
-  architecture-as-code, checked structurally rather than lexically.
-- Tools that learn an architectural baseline directly from the current
-  state of a repository and flag PRs that deviate from what they've
-  learned — the baseline itself is inferred, not authored.
-
-All three infer structure, or detect divergence from a structure they
-inferred. arch-drift starts from a different premise: some architectural
-decisions exist only because a human made them, not because the codebase
-implies them — a boundary drawn on purpose, a rule adopted for a stated
-reason, a fact declared true. No amount of structural inference recovers a
-decision that isn't visible in the code's current shape; the only way an
-agent (or a person) reliably knows it is if it was written down and
-checked, not rediscovered. That's the actual difference: preserving
-declared intent across a long, agent-assisted build, rather than
-discovering or scoring structure.
-
-**The checker is the enforcement half of a three-part contract.** A human
-authors the **Decision**; a deterministic check provides the
-**Enforcement** for whatever part of it is mechanizable; and `knowledge[]`
-carries the **Context** an agent needs to know but can't prove from code.
-arch-drift is built to be exactly the middle third — nothing more.
-
-## Synthetic walkthrough: checking a fictional museum site
-
-This walkthrough uses only the fictional `test/fixtures/target`
-tree. Its rules are invented to exercise Arch-Drift's checker contracts; no
-result below is a measurement of a production system. The static fixture
-models a community-museum website with scheduled theme activation, built-in
-exhibit rendering, reversible migrations, and preview-cache safety.
-
-Run the static checker from the repository root:
+Errors outrank violations because the run was incomplete. Advisories never
+change the exit code. `unresolvable` files also don't change the exit code: a
+file in `unresolvable[]` was never checked, so a consumer that must gate on it
+(for example a pre-merge hook) should read that field. See the
+[report contract](docs/STATIC-REPORT-CONTRACT.md).
 
 ```sh
 node bin/drift-check.js --config test/fixtures/architecture.json --target test/fixtures/target --json
 ```
 
-The synthetic target deliberately contains violations, so the command exits
-`1`. Its JSON uses `schemaVersion: "3"`. Invariant statuses include
-`violated`, `advisory_only`, `clean`, `no_targets_matched`,
-`skipped_by_phase`, and `unresolvable`. For example, the
-`preview-cache-safety` check reports executable cache-flush calls inside
-`renderPreview`, ignores identical text in comments and literals, and
-reports a malformed method boundary separately as unresolvable. A confirmed
-violation remains visible alongside that coverage gap.
+## Limits
 
-The fixture also includes an active exemption, an expired exemption, a
-named exclusion, a deliberate migration marker, and an unknown checker type
-in a separate error config. They exercise reporting paths; they do not
-stand in for real incidents. See [drift-log.md](drift-log.md) for
-project-internal defects and the explicitly labeled synthetic exercise.
+- Checks are lexical: file reading, regexes, and globs. A check can surface
+  candidates but cannot establish intent or semantics.
+- `method_body_forbids` uses a hand-written PHP scanner that masks strings,
+  comments, heredocs, and nowdocs. It is not a parser and is PHP-only. When it
+  cannot bound a method it reports `unresolvable` instead of guessing.
+- `suspicious_usage` is a proximity heuristic and can report false positives.
+- Everything here is verified against the repository's synthetic fixtures. No
+  claim is made about accuracy on any real-world codebase.
 
-The separate [operational walkthrough](#experimental-operational-verifier)
-uses fictional parcel snapshots to show PASS, FAIL, UNKNOWN, and stale
-evidence without making any production-readiness claim.
+## Experimental operational verifier
+
+A separate, offline prototype that checks a fictional parcel invariant (shipped
+quantity must not exceed ordered quantity) against local JSON snapshots. It has
+no database or network adapter and takes an explicit `--now`. Evidence that is
+incomplete or stale yields **UNKNOWN**, never a silent pass.
+
+```sh
+node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/pass.json --now 2030-04-06T12:10:00.000Z --json     # PASS, exit 0
+node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/fail.json --now 2030-04-06T12:10:00.000Z --json     # FAIL, exit 1
+node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/unknown.json --now 2030-04-06T12:10:00.000Z --json  # UNKNOWN, exit 2
+node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/pass.json --now 2030-04-06T13:10:00.000Z --json     # stale: UNKNOWN, exit 2
+```
+
+It is a prototype and not production-ready. Declared provenance and
+completeness in a snapshot are **not** independently authenticated. See the
+[operational prototype contract](docs/OPERATIONAL-PROTOTYPE.md) (`operational/1`).
+
+## Documentation
+
+- [Checker reference](docs/CHECKER-REFERENCE.md): scope, every checker type and option, `architecture.json` shape
+- [Static report contract](docs/STATIC-REPORT-CONTRACT.md): `--json` schema 3, statuses, human report
+- [PHP method scope](docs/PHP-METHOD-SCOPE.md): how `method_body_forbids` bounds methods and fails safe
+- [Operational prototype](docs/OPERATIONAL-PROTOTYPE.md): the experimental verifier's contract
+- [Checker backlog](docs/CHECKER-BACKLOG.md): proposed, unimplemented checkers
+- [Positioning](docs/POSITIONING.md) and [synthetic walkthrough](docs/SYNTHETIC-WALKTHROUGH.md)
+- [drift-log.md](drift-log.md): the project's own defects and design decisions
+- [examples/architecture.json](examples/architecture.json): a full worked config
 
 ## Development
-
-Install from the committed lockfile, then run the complete test suite:
 
 ```sh
 npm ci
 npm test
 ```
 
-In Windows PowerShell, use the `.cmd` shims:
-
-```powershell
-npm.cmd ci
-npm.cmd test
-```
-
-`test/fixtures/` is a small, permanent PHP/JS target tree plus two
-`architecture.json` variants that exercise every checker type, both
-exemption states (active-and-suppressing, expired, active-but-unused), the
-error path, and every knowledge-section combination. It's the test suite, not
-throwaway scaffolding — re-run it whenever checker behavior changes.
-`test/fixtures/demo-fulfillment/` contains separate, entirely synthetic
-operational snapshots for the experimental verifier.
+`test/fixtures/` is a permanent, synthetic PHP/JS target tree with two
+`architecture.json` variants that exercise every checker type, both exemption
+states, the error path, and the knowledge section. Re-run the suite whenever
+checker behavior changes. CI runs on Node 20 and 22.
