@@ -42,7 +42,8 @@ count should be generated from the committed fixture, not carried by memory.
 ## A substring was mistaken for a lookup pattern
 
 **Source:** Arch-Drift's static fixture suite. **Disposition:** known false
-positive, not yet fixed.
+positive; addressed by an opt-in option (see the resolution below), with the
+default behavior deliberately unchanged.
 
 The `suspicious_usage` checker uses substring proximity. In a synthetic
 fixture, the word `nowhere` contains the pattern `where`; a nearby display
@@ -50,6 +51,26 @@ field can therefore be reported even without a lookup call. Word-boundary
 matching could address this specific case, but changing the matching rule
 requires separate behavior tests. This remains a checker limitation, not an
 observation about an external system.
+
+**Resolution:** `suspicious_usage` accepts an optional boolean
+`word_boundary`. Absent or `false`, matching is exactly the legacy
+case-sensitive substring behavior, so existing configs are unaffected and the
+false positive still occurs for them. With `true`, `symbol` and `near` are
+matched as literals with Unicode word boundaries (`[\p{L}\p{N}_]`, read by code
+point); each pattern edge is constrained only if its own edge character is a
+word character, and neighbours come from the full file rather than the
+`window_chars` slice, so a clipped token cannot become a whole-word match. The
+same change fixed a separate defect: an empty `symbol` or `near` string made
+the occurrence scan loop forever. Empty and non-string patterns are now a
+reported check error (exit 2) in both modes, as is a non-boolean
+`word_boundary`. Report schema 3 and `matchedText` are unchanged.
+
+**Remaining limitations:** boundaries are judged only at a pattern's two outer
+edges, so a compound pattern such as `where find` is not checked word by word
+inside. A combining mark (Unicode category `M`) next to a pattern is not a
+word character, so `where` followed by a combining accent still matches. This
+is still lexical matching, not parsing, and cannot tell a lookup call from a
+word that merely appears near the symbol.
 
 ## Method-scoped checking uses a PHP lexical scanner
 

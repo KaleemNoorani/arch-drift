@@ -284,6 +284,48 @@ language-scoped to exactly this one checker type; see the design
 discussion in [drift-log.md](drift-log.md) for why a parser dependency was
 evaluated and not taken.
 
+### `suspicious_usage`: `word_boundary`
+
+By default `suspicious_usage` matches `symbol` and every `near` entry as plain,
+case-sensitive substrings, so `"where"` also matches inside `nowhere`,
+`somewhere`, and `whereIn`. Set the optional check-level boolean
+`"word_boundary": true` to require whole-token matches:
+
+```json
+{ "type": "suspicious_usage", "symbol": "display_slug", "near": ["where", "->on("],
+  "window_chars": 60, "scope": ["app/**/*.php"], "word_boundary": true }
+```
+
+| source text | default | `word_boundary: true` |
+| --- | --- | --- |
+| `where` | match | match |
+| `nowhere`, `somewhere` | match | no match |
+| `whereIn`, `where_`, `where2` | match | no match |
+| `->where(` for pattern `->where(` | match | match |
+
+Semantics, which apply to both `symbol` and `near`:
+
+- Matching stays literal (patterns are never regular expressions) and
+  case-sensitive.
+- A *word character* is a Unicode letter, Unicode number, or underscore
+  (`[\p{L}\p{N}_]`). Neighbouring characters are read by Unicode code point,
+  so astral letters and digits count and surrogate pairs are never split.
+- Each edge of a pattern is judged independently, and only when the pattern's
+  own edge character is a word character: such an edge must not be adjacent to
+  another word character. Edges that are punctuation (`->where(`, `DB::`) carry
+  no constraint, and punctuation inside a pattern (`DB::table`) is matched
+  literally.
+- Neighbours are taken from the whole file, not the `window_chars` slice, so a
+  token clipped by the window edge never counts as a whole word. The window
+  distance itself is unchanged, and `matchedText` is still the raw window.
+- Every occurrence of a `near` pattern inside the window is considered; an
+  invalid one (`nowhere`) does not hide a later valid one.
+- The value must be a boolean. Any other type, and empty `symbol`/`near`
+  strings, is reported in `errors[]` and exits `2`.
+
+Only checks that set `word_boundary: true` change behavior; existing configs are
+unaffected, and `schemaVersion` stays `3`.
+
 ### `except`: named exclusions
 
 `forbidden_call` and `suspicious_usage` both take an `except` list. Each
