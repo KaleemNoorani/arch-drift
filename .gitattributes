@@ -1,0 +1,2 @@
+# Normalize detected text to LF in Git; Windows checkouts may use CRLF.
+* text=auto
