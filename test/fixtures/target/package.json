@@ -1,5 +1,5 @@
 {
-  "name": "fixture-target",
+  "name": "fictional-museum-fixture",
   "dependencies": {
     "vue": "^3.4.0"
   }

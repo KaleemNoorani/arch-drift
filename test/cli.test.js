@@ -42,7 +42,7 @@ test('CLI: --target pointing at a nonexistent directory -> exit 2, clear message
   assert.match(stderr, /does not exist/);
 });
 
-test('CLI: --config + --target, real fixture -> exit 1, human report has all eight sections', async () => {
+test('CLI: --config + --target, synthetic fixture -> exit 1, human report has all eight sections', async () => {
   const { code, stdout } = await runCli(['--config', mainConfig, '--target', target]);
   assert.equal(code, 1);
   for (const heading of [
@@ -51,9 +51,9 @@ test('CLI: --config + --target, real fixture -> exit 1, human report has all eig
   ]) {
     assert.match(stdout, new RegExp(`=== ${heading} ===`), `missing section: ${heading}`);
   }
-  assert.match(stdout, /ingest-only-order-creation/);
+  assert.match(stdout, /scheduled-theme-activation/);
   assert.match(stdout, /no-legacy-queue-jobs: no_targets_matched/);
-  assert.match(stdout, /InventoryServiceBroken\.php/);
+  assert.match(stdout, /PreviewCacheServiceBroken\.php/);
 });
 
 test('CLI: --json produces valid, schema-shaped JSON on stdout matching the process exit code', async () => {
@@ -63,7 +63,7 @@ test('CLI: --json produces valid, schema-shaped JSON on stdout matching the proc
   const report = JSON.parse(stdout); // must not throw — output must be pure JSON, no stray text
   assert.equal(report.schemaVersion, '3');
   assert.equal(report.exitCode, code);
-  assert.equal(report.phase, 'dev');
+  assert.equal(report.phase, 'preview');
   assert.ok(Array.isArray(report.violations) && report.violations.length > 0);
   assert.ok(Array.isArray(report.advisories));
   assert.ok(Array.isArray(report.exclusions) && report.exclusions.length > 0);
@@ -81,13 +81,13 @@ test('CLI: --json produces valid, schema-shaped JSON on stdout matching the proc
     unresolvable: report.unresolvable.length,
   });
 
-  // method_body_forbids contract: real, asserted output for the lineage-preserving-deletes fixture.
-  const lineageViolations = report.violations.filter((v) => v.invariantId === 'lineage-preserving-deletes');
-  assert.equal(lineageViolations.length, 2, 'exactly the direct call and the closure-nested call');
-  assert.ok(lineageViolations.every((v) => v.file.endsWith('InventoryService.php')));
-  const unresolvableEntry = report.unresolvable.find((u) => u.invariantId === 'lineage-preserving-deletes');
+  // method_body_forbids contract: asserted output for the synthetic preview-cache fixture.
+  const cacheViolations = report.violations.filter((v) => v.invariantId === 'preview-cache-safety');
+  assert.equal(cacheViolations.length, 2, 'exactly the direct call and the closure-nested call');
+  assert.ok(cacheViolations.every((v) => v.file.endsWith('PreviewCacheService.php')));
+  const unresolvableEntry = report.unresolvable.find((u) => u.invariantId === 'preview-cache-safety');
   assert.ok(unresolvableEntry, 'the deliberately-broken file must be reported, not silently dropped');
-  assert.match(unresolvableEntry.file, /InventoryServiceBroken\.php/);
+  assert.match(unresolvableEntry.file, /PreviewCacheServiceBroken\.php/);
   assert.equal(unresolvableEntry.kind, 'scanner_limitation');
 
   // unresolvable[].kind: exactly the three documented values, all present in this fixture,
@@ -112,11 +112,11 @@ test('CLI: --json produces valid, schema-shaped JSON on stdout matching the proc
 
   // A 'violated' check's unresolvable count rides on the same check object,
   // not just in the separate top-level unresolvable[] array.
-  const lineage = byId['lineage-preserving-deletes'];
-  assert.equal(lineage.status, 'violated');
-  assert.equal(lineage.checks[0].unresolvable, 1);
+  const cache = byId['preview-cache-safety'];
+  assert.equal(cache.status, 'violated');
+  assert.equal(cache.checks[0].unresolvable, 1);
 
-  const skipped = byId['production-only-check'];
+  const skipped = byId['public-only-check'];
   assert.equal(skipped.status, 'skipped_by_phase');
   assert.equal(skipped.checks[0].matchedFiles, null);
   assert.equal(skipped.checks[0].findings, null);

@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\InventoryUnit;
+use App\Support\PreviewCache;
 
 /**
  * Fixture: two unrelated classes in one file, each with their own
@@ -13,16 +13,16 @@ use App\Models\InventoryUnit;
  */
 class PrimaryProcessor
 {
-    public function process(int $unitId): void
+    public function process(int $pageId): void
     {
-        InventoryUnit::delete($unitId);
+        PreviewCache::flush($pageId);
     }
 }
 
 class SecondaryProcessor
 {
-    public function process(int $unitId): void
+    public function process(int $pageId): void
     {
-        InventoryUnit::delete($unitId);
+        PreviewCache::flush($pageId);
     }
 }

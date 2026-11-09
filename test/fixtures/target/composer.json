@@ -1,8 +1,8 @@
 {
-  "name": "example/fixture-target",
+  "name": "example/fictional-museum-fixture",
   "require": {
     "php": "^8.2",
     "laravel/framework": "^11.0",
-    "quicksearch/quicksearch-php": "^3.1"
+    "example/fictional-remote-renderer": "^1.0"
   }
 }

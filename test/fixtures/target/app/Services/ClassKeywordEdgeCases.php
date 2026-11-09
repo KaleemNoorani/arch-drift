@@ -2,12 +2,12 @@
 
 namespace App\Services;
 
-use App\Models\InventoryUnit;
+use App\Support\PreviewCache;
 
 /**
  * Fixture proving three things at once, deliberately in one file since
  * they interact:
- *  - a `::class` constant reference (everywhere in Laravel) must not be
+ *  - a `::class` constant reference (in PHP) must not be
  *    mistaken for a class declaration by the scanner;
  *  - the literal word "class" inside a comment or a string must not
  *    create a spurious class range either;
@@ -18,14 +18,14 @@ use App\Models\InventoryUnit;
  */
 class OuterProcessor
 {
-    public function process(int $unitId): void
+    public function process(int $pageId): void
     {
         // Not a real class declaration: class Something {
         $note = "also not a real class declaration: class Something {";
 
-        $modelClass = InventoryUnit::class;
+        $cacheClass = PreviewCache::class;
 
-        InventoryUnit::delete($unitId);
+        PreviewCache::flush($pageId);
     }
 
     public function setupLocalHelper(): void
@@ -33,11 +33,11 @@ class OuterProcessor
         if (!class_exists('LocalHelper')) {
             class LocalHelper
             {
-                public function process(int $unitId): void
+                public function process(int $pageId): void
                 {
                     // A different, unrelated process() -- must not be
                     // attributed to OuterProcessor.
-                    InventoryUnit::delete($unitId);
+                    PreviewCache::flush($pageId);
                 }
             }
         }
