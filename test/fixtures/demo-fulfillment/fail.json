@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "operational/1",
+  "asOf": "2030-04-06T12:00:00.000Z",
+  "policy": { "maxAgeSeconds": 3600, "requireIndependentSources": true },
+  "subjects": ["parcel-line-comet"],
+  "sources": [
+    {
+      "id": "orders", "artifactId": "fictional-order-cards-B", "lineageRoot": "storybook-order-origin",
+      "asOf": "2030-04-06T12:00:00.000Z", "capturedAt": "2030-04-06T12:05:00.000Z",
+      "completeThrough": "2030-04-06T12:00:00.000Z", "complete": true,
+      "records": [{ "id": "card-comet", "subjectId": "parcel-line-comet", "quantity": 4 }]
+    },
+    {
+      "id": "events", "artifactId": "fictional-parcel-journal-B", "lineageRoot": "storybook-parcel-origin",
+      "asOf": "2030-04-06T12:00:00.000Z", "capturedAt": "2030-04-06T12:06:00.000Z",
+      "completeThrough": "2030-04-06T12:00:00.000Z", "complete": true,
+      "records": [
+        { "id": "journal-comet-1", "subjectId": "parcel-line-comet", "kind": "ship", "quantity": 5, "occurredAt": "2030-04-06T10:00:00.000Z", "sequence": 1 }
+      ]
+    }
+  ]
+}

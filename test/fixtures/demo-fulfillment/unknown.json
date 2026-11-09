@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "operational/1",
+  "asOf": "2030-04-06T12:00:00.000Z",
+  "policy": { "maxAgeSeconds": 3600, "requireIndependentSources": true },
+  "subjects": ["parcel-line-nebula"],
+  "sources": [
+    {
+      "id": "orders", "artifactId": "fictional-order-cards-C", "lineageRoot": "storybook-order-origin",
+      "asOf": "2030-04-06T12:00:00.000Z", "capturedAt": "2030-04-06T12:05:00.000Z",
+      "completeThrough": "2030-04-06T12:00:00.000Z", "complete": true,
+      "records": [{ "id": "card-nebula", "subjectId": "parcel-line-nebula", "quantity": 6 }]
+    },
+    {
+      "id": "events", "artifactId": "fictional-parcel-journal-C", "lineageRoot": "storybook-parcel-origin",
+      "asOf": "2030-04-06T12:00:00.000Z", "capturedAt": "2030-04-06T12:06:00.000Z",
+      "completeThrough": "2030-04-06T11:00:00.000Z", "complete": false,
+      "records": []
+    }
+  ]
+}
