@@ -1,12 +1,13 @@
 # arch-drift
 
-A lexical architecture-drift checker. It reads a declarative `architecture.json`
-describing a codebase's architectural invariants, runs checks against a target
-codebase, and reports violations. It never modifies the target and never
-modifies `architecture.json` — a human owns that file; the tool only verifies
-reality against it.
+Arch-Drift provides a static architecture checker and a separate, experimental
+operational verifier. The static checker reads a declarative `architecture.json`
+describing a codebase's architectural invariants, checks a target codebase, and
+reports violations. It never modifies the target or `architecture.json` — a
+human owns that file. The operational prototype verifies a fictional parcel
+invariant from local synthetic JSON fixtures; it is not production-ready.
 
-## Usage
+## Static architecture checker
 
 ```
 node bin/drift-check.js --config <path-to-architecture.json> --target <path-to-codebase>
@@ -25,6 +26,14 @@ Exit codes:
 - `2` — tool/config error (malformed invariant, unreadable target, unknown
   checker type). Errors dominate violations because they mean the run was
   incomplete, not merely that it found problems.
+
+From the repository root, this fixture command demonstrates the static CLI:
+
+```sh
+node bin/drift-check.js --config test/fixtures/architecture.json --target test/fixtures/target --json
+```
+
+The fixture intentionally contains violations, so this command exits `1`.
 
 ### `--json`
 
@@ -117,7 +126,36 @@ arch-drift enforces itself (see `method_body_forbids`'s fail-safe below;
 a consumer that needs to gate on it, e.g. a pre-merge hook, should read
 this field directly).
 
-## v1 scope
+## Experimental operational verifier
+
+The operational verifier has its own CLI and `operational/1` report contract.
+It reads only JSON files in `test/fixtures/demo-fulfillment`, uses an explicit
+`--now` value, and has no database or network adapter. Its synthetic parcel
+lines illustrate three outcomes:
+
+```sh
+node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/pass.json --now 2030-04-06T12:10:00.000Z --json
+node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/fail.json --now 2030-04-06T12:10:00.000Z --json
+node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/unknown.json --now 2030-04-06T12:10:00.000Z --json
+node bin/operational-check.js --snapshot test/fixtures/demo-fulfillment/pass.json --now 2030-04-06T13:10:00.000Z --json
+```
+
+In the fictional walkthrough, `parcel-line-aurora` ordered eight units and
+shipped three: the remaining five are allowed, so the result is **PASS**
+(exit `0`). `parcel-line-comet` ordered four but has a five-unit shipment:
+**FAIL** (exit `1`). `parcel-line-nebula` has an event source whose declared
+coverage ends before the as-of cutoff: **UNKNOWN** (exit `2`). An incomplete
+source cannot establish that no further shipments occurred, so it cannot
+silently produce PASS. The fourth command reuses the passing fixture with a
+later clock; its evidence is stale and yields **UNKNOWN** (exit `2`) rather
+than a false PASS. Declared provenance and completeness are not independently
+authenticated.
+
+See [the operational prototype contract](docs/OPERATIONAL-PROTOTYPE.md) for
+ordering, evidence, recovery guidance, and JSON fields. These commands use
+only original synthetic fixtures and do not exercise production systems.
+
+## Static checker v1 scope
 
 Checks are **lexical only** — reading files as text, regexing, and globbing.
 No AST parser, no language-parsing dependency. Where a check can't reliably
@@ -506,9 +544,18 @@ a headline number in this README as it does to a finding in a report.
 
 ## Development
 
-```
-npm install
+Install from the committed lockfile, then run the complete test suite:
+
+```sh
+npm ci
 npm test
+```
+
+In Windows PowerShell, use the `.cmd` shims:
+
+```powershell
+npm.cmd ci
+npm.cmd test
 ```
 
 `test/fixtures/` is a small, permanent PHP/JS target tree plus two
@@ -516,3 +563,5 @@ npm test
 exemption states (active-and-suppressing, expired, active-but-unused), the
 error path, and every knowledge-section combination. It's the test suite, not
 throwaway scaffolding — re-run it whenever checker behavior changes.
+`test/fixtures/demo-fulfillment/` contains separate, entirely synthetic
+operational snapshots for the experimental verifier.
