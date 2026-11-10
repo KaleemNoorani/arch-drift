@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/arch-drift-logo.png" alt="Arch-Drift logo" width="180">
+</p>
+
 # arch-drift
 
 A small, dependency-light checker that verifies a codebase against architectural
