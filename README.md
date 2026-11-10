@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/arch-drift-logo.png" alt="Arch-Drift logo" width="180">
+  <img src="assets/arch-drift-logo.png" alt="Arch-Drift logo" width="170">
 </p>
 
-# arch-drift
+# Arch-Drift
 
 A small, dependency-light checker that verifies a codebase against architectural
 decisions a human wrote down in `architecture.json`.
