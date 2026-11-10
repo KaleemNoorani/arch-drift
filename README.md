@@ -1,8 +1,12 @@
 <p align="center">
-  <img src="assets/arch-drift-logo.png" alt="Arch-Drift logo" width="180">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/arch-drift-logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/arch-drift-logo.png">
+    <img src="assets/arch-drift-logo.png" alt="Arch-Drift logo" width="170">
+  </picture>
 </p>
 
-# arch-drift
+# Arch-Drift
 
 A small, dependency-light checker that verifies a codebase against architectural
 decisions a human wrote down in `architecture.json`.
